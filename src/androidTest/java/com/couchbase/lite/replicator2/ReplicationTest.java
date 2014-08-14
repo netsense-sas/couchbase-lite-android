@@ -50,4 +50,33 @@ public class ReplicationTest extends LiteTestCase {
 
     }
 
+    /**
+     * Start a replication and stop it immediately
+     */
+    public void testStartReplicationStartStop() throws Exception {
+
+        final CountDownLatch countDownLatch = new CountDownLatch(1);
+        final Replication replication = new Replication(database, new URL("http://fake.com/foo"));
+        replication.setContinous(true);
+        replication.addChangeListener(new Replication.ChangeListener() {
+            @Override
+            public void changed(Replication.ChangeEvent event) {
+                if (replication.isRunning() == false) {
+                    countDownLatch.countDown();
+                }
+            }
+        });
+
+        replication.start();
+        replication.start();  // this should be ignored
+
+        replication.stop();
+        replication.stop();  // this should be ignored
+
+        boolean success = countDownLatch.await(60, TimeUnit.SECONDS);
+        assertTrue(success);
+
+        assertTrue(replication.getLastError() == null);
+    }
+
 }
