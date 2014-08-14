@@ -1,11 +1,9 @@
-package com.couchbase.lite.replicator;
+package com.couchbase.lite.mockserver;
 
-import com.couchbase.lite.util.Log;
 import com.squareup.okhttp.mockwebserver.Dispatcher;
 import com.squareup.okhttp.mockwebserver.MockResponse;
 import com.squareup.okhttp.mockwebserver.RecordedRequest;
 
-import java.net.HttpURLConnection;
 import java.util.HashMap;
 import java.util.Map;
 import java.util.concurrent.BlockingQueue;

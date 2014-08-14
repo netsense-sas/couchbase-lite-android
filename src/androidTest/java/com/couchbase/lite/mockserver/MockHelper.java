@@ -1,11 +1,9 @@
-package com.couchbase.lite.replicator;
+package com.couchbase.lite.mockserver;
 
 import com.couchbase.lite.Manager;
 import com.couchbase.lite.Misc;
-import com.squareup.okhttp.mockwebserver.Dispatcher;
 import com.squareup.okhttp.mockwebserver.MockResponse;
 import com.squareup.okhttp.mockwebserver.MockWebServer;
-import com.squareup.okhttp.mockwebserver.RecordedRequest;
 
 import java.io.IOException;
 import java.util.ArrayList;
@@ -13,7 +11,6 @@ import java.util.HashMap;
 import java.util.List;
 import java.util.Map;
 import java.util.concurrent.BlockingQueue;
-import java.util.concurrent.LinkedBlockingDeque;
 import java.util.concurrent.LinkedBlockingQueue;
 
 /**
