@@ -214,6 +214,7 @@ public class ReplicationTest extends LiteTestCase {
 
         // make assertions about outgoing requests from replicator -> mock
         RecordedRequest getCheckpointRequest = dispatcher.takeRequest(MockHelper.PATH_REGEX_CHECKPOINT);
+        assertNotNull(getCheckpointRequest);
         assertTrue(getCheckpointRequest.getMethod().equals("GET"));
         assertTrue(getCheckpointRequest.getPath().matches(MockHelper.PATH_REGEX_CHECKPOINT));
         RecordedRequest getChangesFeedRequest = dispatcher.takeRequest(MockHelper.PATH_REGEX_CHANGES);
