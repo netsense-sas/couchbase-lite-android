@@ -39,11 +39,9 @@ public class ReplicationTest extends LiteTestCase {
      */
     public void testStartReplicationClosedDb() throws Exception {
 
-        Database closedDb = this.manager.getDatabase("closed");
-        closedDb.close();
-
+        Database db = this.manager.getDatabase("closed");
         final CountDownLatch countDownLatch = new CountDownLatch(1);
-        final Replication replication = new Replication(closedDb, new URL("http://fake.com/foo"));
+        final Replication replication = new Replication(db, new URL("http://fake.com/foo"));
         replication.setContinous(true);
         replication.addChangeListener(new Replication.ChangeListener() {
             @Override
@@ -55,6 +53,8 @@ public class ReplicationTest extends LiteTestCase {
 
             }
         });
+
+        db.close();
         replication.start();
 
         boolean success = countDownLatch.await(60, TimeUnit.SECONDS);
