@@ -41,7 +41,7 @@ public class ReplicationTest extends LiteTestCase {
 
         Database db = this.manager.getDatabase("closed");
         final CountDownLatch countDownLatch = new CountDownLatch(1);
-        final Replication replication = new Replication(db, new URL("http://fake.com/foo"));
+        final Replication replication = db.createPullReplication2(new URL("http://fake.com/foo"));
         replication.setContinous(true);
         replication.addChangeListener(new Replication.ChangeListener() {
             @Override
@@ -71,7 +71,7 @@ public class ReplicationTest extends LiteTestCase {
 
         final CountDownLatch countDownLatch = new CountDownLatch(1);
         final List<ReplicationStateTransition> transitions = new ArrayList<ReplicationStateTransition>();
-        final Replication replication = new Replication(database, new URL("http://fake.com/foo"));
+        final Replication replication = database.createPullReplication2(new URL("http://fake.com/foo"));
         replication.setContinous(true);
         replication.addChangeListener(new Replication.ChangeListener() {
             @Override
