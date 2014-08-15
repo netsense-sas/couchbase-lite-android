@@ -1,5 +1,8 @@
 package com.couchbase.lite;
 
+import com.couchbase.lite.mockserver.MockDispatcher;
+import com.couchbase.lite.mockserver.MockDocumentGet;
+import com.couchbase.lite.mockserver.MockHelper;
 import com.couchbase.test.lite.*;
 
 import com.couchbase.lite.internal.Body;
@@ -9,10 +12,12 @@ import com.couchbase.lite.router.Router;
 import com.couchbase.lite.storage.Cursor;
 import com.couchbase.lite.support.FileDirUtils;
 import com.couchbase.lite.util.Log;
+import com.squareup.okhttp.mockwebserver.RecordedRequest;
 
 import junit.framework.Assert;
 
 import org.apache.commons.io.IOUtils;
+import org.apache.commons.io.output.ByteArrayOutputStream;
 import org.codehaus.jackson.map.ObjectMapper;
 import org.codehaus.jackson.type.TypeReference;
 
@@ -449,6 +454,89 @@ public abstract class LiteTestCase extends LiteTestCaseBase {
         boolean success = replicationDoneSignal.await(120, TimeUnit.SECONDS);
         assertTrue(success);
 
+    }
+
+    public void waitForPutCheckpointRequestWithSeq(MockDispatcher dispatcher, int seq) {
+        while (true) {
+            RecordedRequest request = dispatcher.takeRequestBlocking(MockHelper.PATH_REGEX_CHECKPOINT);
+            if (request.getMethod().equals("PUT")) {
+                String body = request.getUtf8Body();
+                if (body.indexOf(Integer.toString(seq)) != -1) {
+                    // block until response returned
+                    dispatcher.takeRecordedResponseBlocking(request);
+                    return;
+                }
+            }
+        }
+    }
+
+    protected List<RecordedRequest> waitForPutCheckpointRequestWithSequence(MockDispatcher dispatcher, int expectedLastSequence) throws IOException {
+
+        List<RecordedRequest> recordedRequests = new ArrayList<RecordedRequest>();
+
+        // wait until mock server gets a checkpoint PUT request with expected lastSequence
+        boolean foundExpectedLastSeq = false;
+        String expectedLastSequenceStr = String.format("%s", expectedLastSequence);
+
+        while (!foundExpectedLastSeq) {
+
+            RecordedRequest request = dispatcher.takeRequestBlocking(MockHelper.PATH_REGEX_CHECKPOINT);
+            if (request.getMethod().equals("PUT")) {
+
+                recordedRequests.add(request);
+
+                Map<String, Object> jsonMap = Manager.getObjectMapper().readValue(request.getUtf8Body(), Map.class);
+                if (jsonMap.containsKey("lastSequence") && ((String)jsonMap.get("lastSequence")).equals(expectedLastSequenceStr)) {
+                    foundExpectedLastSeq = true;
+                }
+
+                // wait until mock server responds to the checkpoint PUT request.
+                // not sure if this is strictly necessary, but might prevent race conditions.
+                dispatcher.takeRecordedResponseBlocking(request);
+            }
+        }
+
+        return recordedRequests;
+
+    }
+
+    protected void validateCheckpointRequestsRevisions(List<RecordedRequest> checkpointRequests) {
+        try {
+            int i = 0;
+            for (RecordedRequest request : checkpointRequests) {
+                Map<String, Object> jsonMap = Manager.getObjectMapper().readValue(request.getUtf8Body(), Map.class);
+                if (i == 0) {
+                    // the first request is not expected to have a _rev field
+                    assertFalse(jsonMap.containsKey("_rev"));
+                } else {
+                    assertTrue(jsonMap.containsKey("_rev"));
+                    // TODO: make sure that each _rev is in sequential order, eg: "0-1", "0-2", etc..
+                }
+                i += 1;
+            }
+        } catch (IOException e) {
+            throw new RuntimeException(e);
+        }
+
+    }
+
+    protected void attachmentAsserts(String docAttachName, Document doc) throws IOException, CouchbaseLiteException {
+        Attachment attachment = doc.getCurrentRevision().getAttachment(docAttachName);
+        assertNotNull(attachment);
+        byte[] testAttachBytes = MockDocumentGet.getAssetByteArray(docAttachName);
+        int attachLength = testAttachBytes.length;
+        assertEquals(attachLength, attachment.getLength());
+        ByteArrayOutputStream baos = new ByteArrayOutputStream();
+        baos.write(attachment.getContent());
+        byte[] actualAttachBytes = baos.toByteArray();
+        assertEquals(testAttachBytes.length, actualAttachBytes.length);
+        for (int i=0; i<actualAttachBytes.length; i++) {
+            boolean ithByteEqual = actualAttachBytes[i] == testAttachBytes[i];
+            if (!ithByteEqual) {
+                Log.d(Log.TAG, "mismatch");
+            }
+            assertTrue(ithByteEqual);
+        }
     }
 
     public void runReplication(Replication replication) {

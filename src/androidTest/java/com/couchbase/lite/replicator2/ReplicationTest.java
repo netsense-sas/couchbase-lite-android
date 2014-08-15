@@ -121,7 +121,7 @@ public class ReplicationTest extends LiteTestCase {
      * @param addAttachments - should the mock sync gateway return docs with attachments?
      * @return a map that contains the mockwebserver (key="server") and the mock dispatcher
      *         (key="dispatcher")
-
+     */
     public Map<String, Object> mockSinglePull(boolean shutdownMockWebserver, MockDispatcher.ServerType serverType, boolean addAttachments) throws Exception {
 
         // create mockwebserver and custom dispatcher
@@ -239,6 +239,6 @@ public class ReplicationTest extends LiteTestCase {
         return returnVal;
 
     }
-     */
+
 
 }
