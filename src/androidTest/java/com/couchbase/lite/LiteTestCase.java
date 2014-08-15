@@ -434,6 +434,23 @@ public abstract class LiteTestCase extends LiteTestCaseBase {
 
     }
 
+    public void runReplication2(com.couchbase.lite.replicator2.Replication replication) throws Exception {
+
+        final CountDownLatch replicationDoneSignal = new CountDownLatch(1);
+        replication.addChangeListener(new com.couchbase.lite.replicator2.Replication.ChangeListener() {
+            @Override
+            public void changed(com.couchbase.lite.replicator2.Replication.ChangeEvent event) {
+                if (!event.getSource().isRunning()) {
+                    replicationDoneSignal.countDown();
+                }
+            }
+        });
+        replication.start();
+        boolean success = replicationDoneSignal.await(120, TimeUnit.SECONDS);
+        assertTrue(success);
+
+    }
+
     public void runReplication(Replication replication) {
         runReplication(replication, true);
     }
