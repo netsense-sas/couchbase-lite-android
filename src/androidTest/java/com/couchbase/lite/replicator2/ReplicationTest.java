@@ -189,6 +189,7 @@ public class ReplicationTest extends LiteTestCase {
 
         // run pull replication
         Replication pullReplication = database.createPullReplication2(server.getUrl("/db"));
+        String checkpointId = pullReplication.remoteCheckpointDocID();
         runReplication2(pullReplication);
 
         // assert that we now have both docs in local db
@@ -237,9 +238,12 @@ public class ReplicationTest extends LiteTestCase {
         validateCheckpointRequestsRevisions(checkpointRequests);
         assertEquals(1, checkpointRequests.size());
 
+        // give it some time to actually save checkpoint to db
+        Thread.sleep(500);
+
         // assert our local sequence matches what is expected
-        // String lastSequence = database.lastSequenceWithCheckpointId(pullReplication.remoteCheckpointDocID());
-        // assertEquals(Integer.toString(mockDoc2.getDocSeq()), lastSequence);
+        String lastSequence = database.lastSequenceWithCheckpointId(checkpointId);
+        assertEquals(Integer.toString(mockDoc2.getDocSeq()), lastSequence);
 
         // assert completed count makes sense
         // assertEquals(pullReplication.getChangesCount(), pullReplication.getCompletedChangesCount());

@@ -3,6 +3,7 @@ package com.couchbase.lite;
 import com.couchbase.lite.mockserver.MockDispatcher;
 import com.couchbase.lite.mockserver.MockDocumentGet;
 import com.couchbase.lite.mockserver.MockHelper;
+import com.couchbase.lite.replicator2.ReplicationState;
 import com.couchbase.test.lite.*;
 
 import com.couchbase.lite.internal.Body;
@@ -445,13 +446,19 @@ public abstract class LiteTestCase extends LiteTestCaseBase {
         replication.addChangeListener(new com.couchbase.lite.replicator2.Replication.ChangeListener() {
             @Override
             public void changed(com.couchbase.lite.replicator2.Replication.ChangeEvent event) {
-                if (!event.getSource().isRunning()) {
-                    replicationDoneSignal.countDown();
+                if (event.getTransition() != null) {
+                    if (event.getTransition().getDestination() == ReplicationState.STOPPING) {
+                        Log.d(TAG, "Replicator is stopping");
+                    }
+                    if (event.getTransition().getDestination() == ReplicationState.STOPPED) {
+                        Log.d(TAG, "Replicator is stopped");
+                        replicationDoneSignal.countDown();
+                    }
                 }
             }
         });
         replication.start();
-        boolean success = replicationDoneSignal.await(120, TimeUnit.SECONDS);
+        boolean success = replicationDoneSignal.await(300, TimeUnit.SECONDS);
         assertTrue(success);
 
     }
