@@ -246,7 +246,7 @@ public class ReplicationTest extends LiteTestCase {
         assertEquals(Integer.toString(mockDoc2.getDocSeq()), lastSequence);
 
         // assert completed count makes sense
-        // assertEquals(pullReplication.getChangesCount(), pullReplication.getCompletedChangesCount());
+        assertEquals(pullReplication.getChangesCount(), pullReplication.getCompletedChangesCount());
 
         // Shut down the server. Instances cannot be reused.
         if (shutdownMockWebserver) {

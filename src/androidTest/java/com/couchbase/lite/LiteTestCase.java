@@ -451,6 +451,9 @@ public abstract class LiteTestCase extends LiteTestCaseBase {
                         Log.d(TAG, "Replicator is stopping");
                     }
                     if (event.getTransition().getDestination() == ReplicationState.STOPPED) {
+
+                        assertEquals(event.getChangeCount(), event.getCompletedChangeCount());
+
                         Log.d(TAG, "Replicator is stopped");
                         replicationDoneSignal.countDown();
                     }
