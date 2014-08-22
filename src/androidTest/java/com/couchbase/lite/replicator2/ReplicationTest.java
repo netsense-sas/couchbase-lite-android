@@ -3,9 +3,13 @@ package com.couchbase.lite.replicator2;
 import com.couchbase.lite.Database;
 import com.couchbase.lite.Document;
 import com.couchbase.lite.DocumentChange;
+import com.couchbase.lite.Emitter;
 import com.couchbase.lite.LiteTestCase;
+import com.couchbase.lite.LiveQuery;
 import com.couchbase.lite.Manager;
+import com.couchbase.lite.Mapper;
 import com.couchbase.lite.QueryOptions;
+import com.couchbase.lite.View;
 import com.couchbase.lite.internal.RevisionInternal;
 import com.couchbase.lite.mockserver.MockChangesFeed;
 import com.couchbase.lite.mockserver.MockChangesFeedNoResponse;
@@ -649,6 +653,57 @@ public class ReplicationTest extends LiteTestCase {
 
         server.shutdown();
 
+
+    }
+
+    /**
+     * This is essentially a regression test for a deadlock
+     * that was happening when the LiveQuery#onDatabaseChanged()
+     * was calling waitForUpdateThread(), but that thread was
+     * waiting on connection to be released by the thread calling
+     * waitForUpdateThread().  When the deadlock bug was present,
+     * this test would trigger the deadlock and never finish.
+     */
+    public void testPullerWithLiveQuery() throws Throwable {
+
+        View view = database.getView("testPullerWithLiveQueryView");
+        view.setMapReduce(new Mapper() {
+            @Override
+            public void map(Map<String, Object> document, Emitter emitter) {
+                if (document.get("_id") != null) {
+                    emitter.emit(document.get("_id"), null);
+                }
+            }
+        }, null, "1");
+
+        final CountDownLatch countDownLatch = new CountDownLatch(1);
+
+        LiveQuery allDocsLiveQuery = view.createQuery().toLiveQuery();
+        allDocsLiveQuery.addChangeListener(new LiveQuery.ChangeListener() {
+            @Override
+            public void changed(LiveQuery.ChangeEvent event) {
+                int numTimesCalled = 0;
+                if (event.getError() != null) {
+                    throw new RuntimeException(event.getError());
+                }
+                if (event.getRows().getCount() == 2) {
+                    countDownLatch.countDown();
+                }
+            }
+        });
+
+        // kick off live query
+        allDocsLiveQuery.start();
+
+        // do pull replication against mock
+        mockSinglePull(true, MockDispatcher.ServerType.SYNC_GW, true);
+
+        // make sure we were called back with both docs
+        boolean success = countDownLatch.await(30, TimeUnit.SECONDS);
+        assertTrue(success);
+
+        // clean up
+        allDocsLiveQuery.stop();
 
     }
 
