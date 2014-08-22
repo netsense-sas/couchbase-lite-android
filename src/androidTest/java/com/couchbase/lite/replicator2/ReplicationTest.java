@@ -2,8 +2,10 @@ package com.couchbase.lite.replicator2;
 
 import com.couchbase.lite.Database;
 import com.couchbase.lite.Document;
+import com.couchbase.lite.DocumentChange;
 import com.couchbase.lite.LiteTestCase;
 import com.couchbase.lite.Manager;
+import com.couchbase.lite.QueryOptions;
 import com.couchbase.lite.mockserver.MockChangesFeed;
 import com.couchbase.lite.mockserver.MockCheckpointGet;
 import com.couchbase.lite.mockserver.MockCheckpointPut;
@@ -24,6 +26,7 @@ import java.util.List;
 import java.util.Map;
 import java.util.concurrent.CountDownLatch;
 import java.util.concurrent.TimeUnit;
+import java.util.concurrent.atomic.AtomicInteger;
 
 /**
  * Tests for the new state machine based replicator
@@ -192,6 +195,12 @@ public class ReplicationTest extends LiteTestCase {
         mockMultiplePull(shutdownMockWebserver, MockDispatcher.ServerType.COUCHDB);
 
     }
+
+    public void testMockContinuousPullCouchDb() throws Exception {
+        boolean shutdownMockWebserver = true;
+        mockContinuousPull(shutdownMockWebserver, MockDispatcher.ServerType.COUCHDB);
+    }
+
 
 
     /**
@@ -454,5 +463,92 @@ public class ReplicationTest extends LiteTestCase {
 
     }
 
+    public Map<String, Object> mockContinuousPull(boolean shutdownMockWebserver, MockDispatcher.ServerType serverType) throws Exception {
+
+        assertTrue(serverType == MockDispatcher.ServerType.COUCHDB);
+
+        final int numMockRemoteDocs = 20;  // must be multiple of 10!
+        final AtomicInteger numDocsPulledLocally = new AtomicInteger(0);
+
+        MockDispatcher dispatcher = new MockDispatcher();
+        dispatcher.setServerType(serverType);
+        int numDocsPerChangesResponse = numMockRemoteDocs / 10;
+        MockWebServer server = MockHelper.getPreloadedPullTargetMockCouchDB(dispatcher, numMockRemoteDocs, numDocsPerChangesResponse);
+
+        server.play();
+
+        final CountDownLatch receivedAllDocs = new CountDownLatch(1);
+
+        // run pull replication
+        Replication pullReplication = database.createPullReplication2(server.getUrl("/db"));
+        pullReplication.setContinous(true);
+
+        final CountDownLatch replicationDoneSignal = new CountDownLatch(1);
+        pullReplication.addChangeListener(new com.couchbase.lite.replicator2.Replication.ChangeListener() {
+            @Override
+            public void changed(com.couchbase.lite.replicator2.Replication.ChangeEvent event) {
+                if (event.getTransition() != null) {
+                    if (event.getTransition().getDestination() == ReplicationState.STOPPING) {
+                        Log.d(TAG, "Replicator is stopping");
+                    }
+                    if (event.getTransition().getDestination() == ReplicationState.STOPPED) {
+
+                        // assertEquals(event.getChangeCount(), event.getCompletedChangeCount());
+
+                        Log.d(TAG, "Replicator is stopped");
+                        replicationDoneSignal.countDown();
+                    }
+                }
+            }
+        });
+
+        database.addChangeListener(new Database.ChangeListener() {
+            @Override
+            public void changed(Database.ChangeEvent event) {
+                List<DocumentChange> changes = event.getChanges();
+                for (DocumentChange change : changes) {
+                    numDocsPulledLocally.addAndGet(1);
+                }
+                if (numDocsPulledLocally.get() == numMockRemoteDocs) {
+                    receivedAllDocs.countDown();
+                }
+            }
+        });
+
+        pullReplication.start();
+
+        // wait until we received all mock docs or timeout occurs
+        boolean success = receivedAllDocs.await(60, TimeUnit.SECONDS);
+        assertTrue(success);
+
+        // make sure all docs in local db
+        Map<String, Object> allDocs = database.getAllDocs(new QueryOptions());
+        Integer totalRows = (Integer) allDocs.get("total_rows");
+        List rows = (List) allDocs.get("rows");
+        assertEquals(numMockRemoteDocs, totalRows.intValue());
+        assertEquals(numMockRemoteDocs, rows.size());
+
+        // cleanup / shutdown
+        pullReplication.stop();
+
+        success = replicationDoneSignal.await(30, TimeUnit.SECONDS);
+        assertTrue(success);
+
+        // wait until the mock webserver receives a PUT checkpoint request with last do's sequence,
+        // this avoids ugly and confusing exceptions in the logs.
+        List<RecordedRequest> checkpointRequests = waitForPutCheckpointRequestWithSequence(dispatcher, numMockRemoteDocs - 1);
+        validateCheckpointRequestsRevisions(checkpointRequests);
+        assertEquals(1, checkpointRequests.size());
+
+        if (shutdownMockWebserver) {
+            server.shutdown();
+        }
+
+        Map<String, Object> returnVal = new HashMap<String, Object>();
+        returnVal.put("server", server);
+        returnVal.put("dispatcher", dispatcher);
+        return returnVal;
+
+    }
 
 }

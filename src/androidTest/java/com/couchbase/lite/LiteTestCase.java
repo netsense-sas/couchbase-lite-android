@@ -393,6 +393,34 @@ public abstract class LiteTestCase extends LiteTestCaseBase {
     }
 
 
+    public void stopReplication2(com.couchbase.lite.replicator2.Replication replication) throws Exception {
+
+        final CountDownLatch replicationDoneSignal = new CountDownLatch(1);
+        replication.addChangeListener(new com.couchbase.lite.replicator2.Replication.ChangeListener() {
+            @Override
+            public void changed(com.couchbase.lite.replicator2.Replication.ChangeEvent event) {
+                if (event.getTransition() != null) {
+                    if (event.getTransition().getDestination() == ReplicationState.STOPPING) {
+                        Log.d(TAG, "Replicator is stopping");
+                    }
+                    if (event.getTransition().getDestination() == ReplicationState.STOPPED) {
+
+                        assertEquals(event.getChangeCount(), event.getCompletedChangeCount());
+
+                        Log.d(TAG, "Replicator is stopped");
+                        replicationDoneSignal.countDown();
+                    }
+                }
+            }
+        });
+
+        replication.stop();
+
+        boolean success = replicationDoneSignal.await(30, TimeUnit.SECONDS);
+        assertTrue(success);
+
+    }
+
     public void stopReplication(Replication replication) throws Exception {
 
         CountDownLatch replicationDoneSignal = new CountDownLatch(1);

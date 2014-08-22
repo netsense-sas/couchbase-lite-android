@@ -67,6 +67,7 @@ public class MockPreloadedPullTarget {
     protected void addCheckpointResponse() {
         // checkpoint GET response w/ 404.  also receives checkpoint PUT's
         MockCheckpointPut mockCheckpointPut = new MockCheckpointPut();
+        mockCheckpointPut.setSticky(true);
         dispatcher.enqueueResponse(MockHelper.PATH_REGEX_CHECKPOINT, mockCheckpointPut);
     }
 
