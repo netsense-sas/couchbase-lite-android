@@ -6,14 +6,15 @@ import com.couchbase.lite.DocumentChange;
 import com.couchbase.lite.LiteTestCase;
 import com.couchbase.lite.Manager;
 import com.couchbase.lite.QueryOptions;
+import com.couchbase.lite.internal.RevisionInternal;
 import com.couchbase.lite.mockserver.MockChangesFeed;
+import com.couchbase.lite.mockserver.MockChangesFeedNoResponse;
 import com.couchbase.lite.mockserver.MockCheckpointGet;
 import com.couchbase.lite.mockserver.MockCheckpointPut;
 import com.couchbase.lite.mockserver.MockDispatcher;
 import com.couchbase.lite.mockserver.MockDocumentGet;
 import com.couchbase.lite.mockserver.MockHelper;
 import com.couchbase.lite.util.Log;
-import com.github.oxo42.stateless4j.transitions.Transition;
 import com.squareup.okhttp.mockwebserver.MockResponse;
 import com.squareup.okhttp.mockwebserver.MockWebServer;
 import com.squareup.okhttp.mockwebserver.RecordedRequest;
@@ -47,7 +48,7 @@ public class ReplicationTest extends LiteTestCase {
         Database db = this.manager.getDatabase("closed");
         final CountDownLatch countDownLatch = new CountDownLatch(1);
         final Replication replication = db.createPullReplication2(new URL("http://fake.com/foo"));
-        replication.setContinous(true);
+        replication.setContinuous(true);
         replication.addChangeListener(new Replication.ChangeListener() {
             @Override
             public void changed(Replication.ChangeEvent event) {
@@ -77,7 +78,7 @@ public class ReplicationTest extends LiteTestCase {
         final CountDownLatch countDownLatch = new CountDownLatch(1);
         final List<ReplicationStateTransition> transitions = new ArrayList<ReplicationStateTransition>();
         final Replication replication = database.createPullReplication2(new URL("http://fake.com/foo"));
-        replication.setContinous(true);
+        replication.setContinuous(true);
         replication.addChangeListener(new Replication.ChangeListener() {
             @Override
             public void changed(Replication.ChangeEvent event) {
@@ -481,7 +482,7 @@ public class ReplicationTest extends LiteTestCase {
 
         // run pull replication
         Replication pullReplication = database.createPullReplication2(server.getUrl("/db"));
-        pullReplication.setContinous(true);
+        pullReplication.setContinuous(true);
 
         final CountDownLatch replicationDoneSignal = new CountDownLatch(1);
         pullReplication.addChangeListener(new com.couchbase.lite.replicator2.Replication.ChangeListener() {
@@ -548,6 +549,106 @@ public class ReplicationTest extends LiteTestCase {
         returnVal.put("server", server);
         returnVal.put("dispatcher", dispatcher);
         return returnVal;
+
+    }
+
+    /**
+     * https://github.com/couchbase/couchbase-lite-java-core/issues/257
+     *
+     * - Create local document with attachment
+     * - Start continuous pull replication
+     * - MockServer returns _changes with new rev of document
+     * - MockServer returns doc multipart response: https://gist.github.com/tleyden/bf36f688d0b5086372fd
+     * - Delete doc cache (not sure if needed)
+     * - Fetch doc fresh from database
+     * - Verify that it still has attachments
+     *
+     */
+    public void testAttachmentsDeletedOnPull() throws Exception {
+
+        String doc1Id = "doc1";
+        int doc1Rev2Generation = 2;
+        String doc1Rev2Digest = "b";
+        String doc1Rev2 = String.format("%d-%s", doc1Rev2Generation, doc1Rev2Digest);
+        int doc1Seq1 = 1;
+        String doc1AttachName = "attachment.png";
+        String contentType = "image/png";
+
+        // create mockwebserver and custom dispatcher
+        MockDispatcher dispatcher = new MockDispatcher();
+        MockWebServer server = MockHelper.getMockWebServer(dispatcher);
+        dispatcher.setServerType(MockDispatcher.ServerType.SYNC_GW);
+        server.play();
+
+        // add some documents - verify it has an attachment
+        Document doc1 = createDocumentForPushReplication(doc1Id, doc1AttachName, contentType);
+        String doc1Rev1 = doc1.getCurrentRevisionId();
+        database.clearDocumentCache();
+        doc1 = database.getDocument(doc1.getId());
+        assertTrue(doc1.getCurrentRevision().getAttachments().size() > 0);
+
+        // checkpoint GET response w/ 404
+        MockResponse fakeCheckpointResponse = new MockResponse();
+        MockHelper.set404NotFoundJson(fakeCheckpointResponse);
+        dispatcher.enqueueResponse(MockHelper.PATH_REGEX_CHECKPOINT, fakeCheckpointResponse);
+
+        // checkpoint PUT response
+        MockCheckpointPut mockCheckpointPut = new MockCheckpointPut();
+        mockCheckpointPut.setSticky(true);
+        dispatcher.enqueueResponse(MockHelper.PATH_REGEX_CHECKPOINT, mockCheckpointPut);
+
+        // add response to 1st _changes request
+        final MockDocumentGet.MockDocument mockDocument1 = new MockDocumentGet.MockDocument(
+                doc1Id, doc1Rev2, doc1Seq1);
+        Map<String, Object> newProperties = new HashMap<String, Object>(doc1.getProperties());
+        newProperties.put("_rev", doc1Rev2);
+        mockDocument1.setJsonMap(newProperties);
+        mockDocument1.setAttachmentName(doc1AttachName);
+
+        MockChangesFeed mockChangesFeed = new MockChangesFeed();
+        mockChangesFeed.add(new MockChangesFeed.MockChangedDoc(mockDocument1));
+        dispatcher.enqueueResponse(MockHelper.PATH_REGEX_CHANGES, mockChangesFeed.generateMockResponse());
+
+        // add sticky _changes response to feed=longpoll that just blocks for 60 seconds to emulate
+        // server that doesn't have any new changes
+        MockChangesFeedNoResponse mockChangesFeedNoResponse = new MockChangesFeedNoResponse();
+        mockChangesFeedNoResponse.setDelayMs(60 * 1000);
+        mockChangesFeedNoResponse.setSticky(true);
+        dispatcher.enqueueResponse(MockHelper.PATH_REGEX_CHANGES, mockChangesFeedNoResponse);
+
+        // add response to doc get
+        MockDocumentGet mockDocumentGet = new MockDocumentGet(mockDocument1);
+        mockDocumentGet.addAttachmentFilename(mockDocument1.getAttachmentName());
+        mockDocumentGet.setIncludeAttachmentPart(false);
+        Map<String, Object> revHistory = new HashMap<String, Object>();
+        revHistory.put("start", doc1Rev2Generation);
+        List ids = Arrays.asList(
+                RevisionInternal.digestFromRevID(doc1Rev2),
+                RevisionInternal.digestFromRevID(doc1Rev1)
+        );
+        revHistory.put("ids",ids);
+        mockDocumentGet.setRevHistoryMap(revHistory);
+        dispatcher.enqueueResponse(mockDocument1.getDocPathRegex(), mockDocumentGet.generateMockResponse());
+
+        // create and start pull replication
+        Replication pullReplication = database.createPullReplication2(server.getUrl("/db"));
+        pullReplication.setContinuous(true);
+        pullReplication.start();
+
+        // wait for the next PUT checkpoint request/response
+        waitForPutCheckpointRequestWithSeq(dispatcher, 1);
+
+        stopReplication2(pullReplication);
+
+        // clear doc cache
+        database.clearDocumentCache();
+
+        // make sure doc has attachments
+        Document doc1Fetched = database.getDocument(doc1.getId());
+        assertTrue(doc1Fetched.getCurrentRevision().getAttachments().size() > 0);
+
+        server.shutdown();
+
 
     }
 

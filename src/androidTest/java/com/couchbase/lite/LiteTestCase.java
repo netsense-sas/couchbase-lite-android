@@ -1,5 +1,6 @@
 package com.couchbase.lite;
 
+import com.couchbase.lite.internal.RevisionInternal;
 import com.couchbase.lite.mockserver.MockDispatcher;
 import com.couchbase.lite.mockserver.MockDocumentGet;
 import com.couchbase.lite.mockserver.MockHelper;
@@ -419,6 +420,86 @@ public abstract class LiteTestCase extends LiteTestCaseBase {
         boolean success = replicationDoneSignal.await(30, TimeUnit.SECONDS);
         assertTrue(success);
 
+    }
+
+    protected String createDocumentsForPushReplication(String docIdTimestamp) throws CouchbaseLiteException {
+        return createDocumentsForPushReplication(docIdTimestamp, "png");
+    }
+
+    protected Document createDocumentForPushReplication(String docId, String attachmentFileName, String attachmentContentType) throws CouchbaseLiteException {
+
+        Map<String, Object> docJsonMap = MockHelper.generateRandomJsonMap();
+        Map<String, Object> docProperties = new HashMap<String, Object>();
+        docProperties.put("_id", docId);
+        docProperties.putAll(docJsonMap);
+        Document document = database.getDocument(docId);
+        UnsavedRevision revision = document.createRevision();
+        revision.setProperties(docProperties);
+
+        if (attachmentFileName != null) {
+            revision.setAttachment(
+                    attachmentFileName,
+                    attachmentContentType,
+                    getAsset(attachmentFileName)
+            );
+        }
+
+        revision.save();
+        return document;
+
+    }
+
+    protected String createDocumentsForPushReplication(String docIdTimestamp, String attachmentType) throws CouchbaseLiteException {
+        String doc1Id;
+        String doc2Id;// Create some documents:
+        Map<String, Object> doc1Properties = new HashMap<String, Object>();
+        doc1Id = String.format("doc1-%s", docIdTimestamp);
+        doc1Properties.put("_id", doc1Id);
+        doc1Properties.put("foo", 1);
+        doc1Properties.put("bar", false);
+
+        Body body = new Body(doc1Properties);
+        RevisionInternal rev1 = new RevisionInternal(body, database);
+
+        Status status = new Status();
+        rev1 = database.putRevision(rev1, null, false, status);
+        assertEquals(Status.CREATED, status.getCode());
+
+        doc1Properties.put("_rev", rev1.getRevId());
+        doc1Properties.put("UPDATED", true);
+
+        @SuppressWarnings("unused")
+        RevisionInternal rev2 = database.putRevision(new RevisionInternal(doc1Properties, database), rev1.getRevId(), false, status);
+        assertEquals(Status.CREATED, status.getCode());
+
+        Map<String, Object> doc2Properties = new HashMap<String, Object>();
+        doc2Id = String.format("doc2-%s", docIdTimestamp);
+        doc2Properties.put("_id", doc2Id);
+        doc2Properties.put("baz", 666);
+        doc2Properties.put("fnord", true);
+
+        database.putRevision(new RevisionInternal(doc2Properties, database), null, false, status);
+        assertEquals(Status.CREATED, status.getCode());
+
+        Document doc2 = database.getDocument(doc2Id);
+        UnsavedRevision doc2UnsavedRev = doc2.createRevision();
+        if (attachmentType.equals("png")) {
+            InputStream attachmentStream = getAsset("attachment.png");
+            doc2UnsavedRev.setAttachment("attachment.png", "image/png", attachmentStream);
+        } else if (attachmentType.equals("txt")) {
+            StringBuffer sb = new StringBuffer();
+            for (int i=0; i<1000; i++) {
+                sb.append("This is a large attachemnt.");
+            }
+            ByteArrayInputStream attachmentStream = new ByteArrayInputStream(sb.toString().getBytes());
+            doc2UnsavedRev.setAttachment("attachment.txt", "text/plain", attachmentStream);
+        } else {
+            throw new RuntimeException("invalid attachment type: " + attachmentType);
+        }
+        SavedRevision doc2Rev = doc2UnsavedRev.save();
+        assertNotNull(doc2Rev);
+
+        return doc1Id;
     }
 
     public void stopReplication(Replication replication) throws Exception {
