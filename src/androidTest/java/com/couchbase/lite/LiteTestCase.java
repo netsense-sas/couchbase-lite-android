@@ -591,6 +591,8 @@ public abstract class LiteTestCase extends LiteTestCaseBase {
 
     protected List<RecordedRequest> waitForPutCheckpointRequestWithSequence(MockDispatcher dispatcher, int expectedLastSequence) throws IOException {
 
+        Log.d(TAG, "Wait for PUT checkpoint request with lastSequence: %s", expectedLastSequence);
+
         List<RecordedRequest> recordedRequests = new ArrayList<RecordedRequest>();
 
         // wait until mock server gets a checkpoint PUT request with expected lastSequence

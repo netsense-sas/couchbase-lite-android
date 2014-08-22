@@ -332,7 +332,7 @@ public class ReplicationTest extends LiteTestCase {
         assertEquals(1, checkpointRequests.size());
 
         // give it some time to actually save checkpoint to db
-        Thread.sleep(500);
+        workAroundSaveCheckpointRaceCondition();
 
         // assert our local sequence matches what is expected
         String lastSequence = database.lastSequenceWithCheckpointId(checkpointId);
@@ -819,6 +819,8 @@ public class ReplicationTest extends LiteTestCase {
         List<RecordedRequest> checkpointRequests = waitForPutCheckpointRequestWithSequence(dispatcher, expectedLastSequence);
         assertEquals(1, checkpointRequests.size());
 
+        workAroundSaveCheckpointRaceCondition();
+
         // assert our local sequence matches what is expected
         String lastSequence = database.lastSequenceWithCheckpointId(replication.remoteCheckpointDocID());
         assertEquals(Integer.toString(expectedLastSequence), lastSequence);
@@ -836,6 +838,13 @@ public class ReplicationTest extends LiteTestCase {
         returnVal.put("dispatcher", dispatcher);
 
         return returnVal;
+
+    }
+
+    private void workAroundSaveCheckpointRaceCondition() throws InterruptedException {
+
+        // sleep a bit to give it a chance to save checkpoint to db
+        Thread.sleep(2 * 1000);
 
     }
 
