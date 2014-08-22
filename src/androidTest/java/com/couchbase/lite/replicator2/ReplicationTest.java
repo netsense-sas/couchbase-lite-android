@@ -11,21 +11,31 @@ import com.couchbase.lite.Mapper;
 import com.couchbase.lite.QueryOptions;
 import com.couchbase.lite.View;
 import com.couchbase.lite.internal.RevisionInternal;
+import com.couchbase.lite.mockserver.MockBulkDocs;
 import com.couchbase.lite.mockserver.MockChangesFeed;
 import com.couchbase.lite.mockserver.MockChangesFeedNoResponse;
 import com.couchbase.lite.mockserver.MockCheckpointGet;
 import com.couchbase.lite.mockserver.MockCheckpointPut;
 import com.couchbase.lite.mockserver.MockDispatcher;
 import com.couchbase.lite.mockserver.MockDocumentGet;
+import com.couchbase.lite.mockserver.MockDocumentPut;
 import com.couchbase.lite.mockserver.MockHelper;
+import com.couchbase.lite.mockserver.MockRevsDiff;
 import com.couchbase.lite.util.Log;
 import com.squareup.okhttp.mockwebserver.MockResponse;
 import com.squareup.okhttp.mockwebserver.MockWebServer;
 import com.squareup.okhttp.mockwebserver.RecordedRequest;
 
+import junit.framework.Assert;
+
+import org.apache.http.client.CookieStore;
+import org.apache.http.cookie.Cookie;
+
 import java.net.URL;
 import java.util.ArrayList;
 import java.util.Arrays;
+import java.util.Calendar;
+import java.util.Date;
 import java.util.HashMap;
 import java.util.List;
 import java.util.Map;
@@ -704,6 +714,128 @@ public class ReplicationTest extends LiteTestCase {
 
         // clean up
         allDocsLiveQuery.stop();
+
+    }
+
+
+    public void testMockSinglePush() throws Exception {
+
+        boolean shutdownMockWebserver = true;
+
+        mockSinglePush(shutdownMockWebserver, MockDispatcher.ServerType.SYNC_GW);
+
+    }
+
+
+    /**
+     * Do a push replication
+     *
+     * - Create docs in local db
+     *   - One with no attachment
+     *   - One with small attachment
+     *   - One with large attachment
+     *
+     */
+
+    public Map<String, Object> mockSinglePush(boolean shutdownMockWebserver, MockDispatcher.ServerType serverType) throws Exception {
+
+        String doc1Id = "doc1";
+        String doc2Id = "doc2";
+        String doc3Id = "doc3";
+        String doc4Id = "doc4";
+        String doc2PathRegex = String.format("/db/%s.*", doc2Id);
+        String doc3PathRegex = String.format("/db/%s.*", doc3Id);
+        String doc2AttachName = "attachment.png";
+        String doc3AttachName = "attachment2.png";
+        String contentType = "image/png";
+
+        // create mockwebserver and custom dispatcher
+        MockDispatcher dispatcher = new MockDispatcher();
+        MockWebServer server = MockHelper.getMockWebServer(dispatcher);
+        dispatcher.setServerType(serverType);
+        server.play();
+
+        // add some documents
+        Document doc1 = createDocumentForPushReplication(doc1Id, null, null);
+        Document doc2 = createDocumentForPushReplication(doc2Id, doc2AttachName, contentType);
+        Document doc3 = createDocumentForPushReplication(doc3Id, doc3AttachName, contentType);
+        Document doc4 = createDocumentForPushReplication(doc4Id, null, null);
+        doc4.delete();
+
+        // checkpoint GET response w/ 404
+        MockResponse fakeCheckpointResponse = new MockResponse();
+        MockHelper.set404NotFoundJson(fakeCheckpointResponse);
+        dispatcher.enqueueResponse(MockHelper.PATH_REGEX_CHECKPOINT, fakeCheckpointResponse);
+
+        // _revs_diff response -- everything missing
+        MockRevsDiff mockRevsDiff = new MockRevsDiff();
+        dispatcher.enqueueResponse(MockHelper.PATH_REGEX_REVS_DIFF, mockRevsDiff);
+
+        // _bulk_docs response -- everything stored
+        MockBulkDocs mockBulkDocs = new MockBulkDocs();
+        dispatcher.enqueueResponse(MockHelper.PATH_REGEX_BULK_DOCS, mockBulkDocs);
+
+        // doc PUT responses for docs with attachments
+        MockDocumentPut mockDoc2Put = new MockDocumentPut()
+                .setDocId(doc2Id)
+                .setRev(doc2.getCurrentRevisionId());
+        dispatcher.enqueueResponse(doc2PathRegex, mockDoc2Put.generateMockResponse());
+        MockDocumentPut mockDoc3Put = new MockDocumentPut()
+                .setDocId(doc3Id)
+                .setRev(doc3.getCurrentRevisionId());
+        dispatcher.enqueueResponse(doc3PathRegex, mockDoc3Put.generateMockResponse());
+
+        // run replication
+        Replication replication = database.createPushReplication2(server.getUrl("/db"));
+        replication.setContinuous(false);
+        if (serverType != MockDispatcher.ServerType.SYNC_GW) {
+            replication.setCreateTarget(true);
+            Assert.assertTrue(replication.shouldCreateTarget());
+        }
+        runReplication2(replication);
+
+        // make assertions about outgoing requests from replicator -> mock
+        RecordedRequest getCheckpointRequest = dispatcher.takeRequest(MockHelper.PATH_REGEX_CHECKPOINT);
+        assertTrue(getCheckpointRequest.getMethod().equals("GET"));
+        assertTrue(getCheckpointRequest.getPath().matches(MockHelper.PATH_REGEX_CHECKPOINT));
+        RecordedRequest revsDiffRequest = dispatcher.takeRequest(MockHelper.PATH_REGEX_REVS_DIFF);
+        assertTrue(revsDiffRequest.getUtf8Body().contains(doc1Id));
+        RecordedRequest bulkDocsRequest = dispatcher.takeRequest(MockHelper.PATH_REGEX_BULK_DOCS);
+        assertTrue(bulkDocsRequest.getUtf8Body().contains(doc1Id));
+        Map <String, Object> bulkDocsJson = Manager.getObjectMapper().readValue(bulkDocsRequest.getUtf8Body(), Map.class);
+        Map <String, Object> doc4Map = MockBulkDocs.findDocById(bulkDocsJson, doc4Id);
+        assertTrue(((Boolean)doc4Map.get("_deleted")).booleanValue() == true);
+
+        assertFalse(bulkDocsRequest.getUtf8Body().contains(doc2Id));
+        RecordedRequest doc2putRequest = dispatcher.takeRequest(doc2PathRegex);
+        assertTrue(doc2putRequest.getUtf8Body().contains(doc2Id));
+        assertFalse(doc2putRequest.getUtf8Body().contains(doc3Id));
+        RecordedRequest doc3putRequest = dispatcher.takeRequest(doc3PathRegex);
+        assertTrue(doc3putRequest.getUtf8Body().contains(doc3Id));
+        assertFalse(doc3putRequest.getUtf8Body().contains(doc2Id));
+
+        // wait until the mock webserver receives a PUT checkpoint request
+        int expectedLastSequence = 5;
+        List<RecordedRequest> checkpointRequests = waitForPutCheckpointRequestWithSequence(dispatcher, expectedLastSequence);
+        assertEquals(1, checkpointRequests.size());
+
+        // assert our local sequence matches what is expected
+        String lastSequence = database.lastSequenceWithCheckpointId(replication.remoteCheckpointDocID());
+        assertEquals(Integer.toString(expectedLastSequence), lastSequence);
+
+        // assert completed count makes sense
+        assertEquals(replication.getChangesCount(), replication.getCompletedChangesCount());
+
+        // Shut down the server. Instances cannot be reused.
+        if (shutdownMockWebserver) {
+            server.shutdown();
+        }
+
+        Map<String, Object> returnVal = new HashMap<String, Object>();
+        returnVal.put("server", server);
+        returnVal.put("dispatcher", dispatcher);
+
+        return returnVal;
 
     }
 
