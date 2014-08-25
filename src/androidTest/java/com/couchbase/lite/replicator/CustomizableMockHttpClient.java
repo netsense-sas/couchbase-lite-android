@@ -465,7 +465,7 @@ public class CustomizableMockHttpClient implements org.apache.http.client.HttpCl
         throw new RuntimeException("Mock Http Client does not know how to handle this request.  It should be fixed");
     }
 
-    static interface Responder {
+    public static interface Responder {
         public HttpResponse execute(HttpUriRequest httpUriRequest) throws IOException;
     }
 

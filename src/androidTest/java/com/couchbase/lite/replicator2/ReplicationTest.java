@@ -21,6 +21,7 @@ import com.couchbase.lite.mockserver.MockDocumentGet;
 import com.couchbase.lite.mockserver.MockDocumentPut;
 import com.couchbase.lite.mockserver.MockHelper;
 import com.couchbase.lite.mockserver.MockRevsDiff;
+import com.couchbase.lite.replicator.CustomizableMockHttpClient;
 import com.couchbase.lite.util.Log;
 import com.squareup.okhttp.mockwebserver.MockResponse;
 import com.squareup.okhttp.mockwebserver.MockWebServer;
@@ -28,9 +29,12 @@ import com.squareup.okhttp.mockwebserver.RecordedRequest;
 
 import junit.framework.Assert;
 
+import org.apache.http.HttpResponse;
 import org.apache.http.client.CookieStore;
+import org.apache.http.client.methods.HttpUriRequest;
 import org.apache.http.cookie.Cookie;
 
+import java.io.IOException;
 import java.net.URL;
 import java.util.ArrayList;
 import java.util.Arrays;
@@ -856,5 +860,110 @@ public class ReplicationTest extends LiteTestCase {
         Thread.sleep(2 * 1000);
 
     }
+
+    /**
+     * https://github.com/couchbase/couchbase-lite-java-core/issues/55
+     */
+    public void testContinuousPushReplicationGoesIdle() throws Exception {
+
+        // make sure we are starting empty
+        assertEquals(0, database.getLastSequenceNumber());
+
+        // add docs
+        Map<String,Object> properties1 = new HashMap<String,Object>();
+        properties1.put("doc1", "testContinuousPushReplicationGoesIdle");
+        final Document doc1 = createDocWithProperties(properties1);
+
+        // create mockwebserver and custom dispatcher
+        MockDispatcher dispatcher = new MockDispatcher();
+        MockWebServer server = MockHelper.getMockWebServer(dispatcher);
+        dispatcher.setServerType(MockDispatcher.ServerType.SYNC_GW);
+        server.play();
+
+        // checkpoint GET response w/ 404.  also receives checkpoint PUT's
+        MockCheckpointPut mockCheckpointPut = new MockCheckpointPut();
+        mockCheckpointPut.setSticky(true);
+        dispatcher.enqueueResponse(MockHelper.PATH_REGEX_CHECKPOINT, mockCheckpointPut);
+
+        // _revs_diff response -- everything missing
+        MockRevsDiff mockRevsDiff = new MockRevsDiff();
+        dispatcher.enqueueResponse(MockHelper.PATH_REGEX_REVS_DIFF, mockRevsDiff);
+
+        // _bulk_docs response -- everything stored
+        MockBulkDocs mockBulkDocs = new MockBulkDocs();
+        dispatcher.enqueueResponse(MockHelper.PATH_REGEX_BULK_DOCS, mockBulkDocs);
+
+        // replication to do initial sync up - has to be continuous replication so the checkpoint id
+        // matches the next continuous replication we're gonna do later.
+
+        Replication firstPusher = database.createPushReplication2(server.getUrl("/db"));
+        firstPusher.setContinuous(true);
+        final String checkpointId = firstPusher.remoteCheckpointDocID();  // save the checkpoint id for later usage
+
+        // start the continuous replication
+        CountDownLatch replicationIdleSignal = new CountDownLatch(1);
+        ReplicationIdleObserver replicationIdleObserver = new ReplicationIdleObserver(replicationIdleSignal);
+        firstPusher.addChangeListener(replicationIdleObserver);
+        firstPusher.start();
+
+        // wait until we get an IDLE event
+        boolean successful = replicationIdleSignal.await(30, TimeUnit.SECONDS);
+        assertTrue(successful);
+        stopReplication2(firstPusher);
+
+        // wait until replication does PUT checkpoint with lastSequence=1
+        int expectedLastSequence = 1;
+        waitForPutCheckpointRequestWithSeq(dispatcher, expectedLastSequence);
+
+        // the last sequence should be "1" at this point.  we will use this later
+        final String lastSequence = database.lastSequenceWithCheckpointId(checkpointId);
+        assertEquals("1", lastSequence);
+
+        // start a second continuous replication
+        Replication secondPusher = database.createPushReplication2(server.getUrl("/db"));
+        secondPusher.setContinuous(true);
+        final String secondPusherCheckpointId = secondPusher.remoteCheckpointDocID();
+        assertEquals(checkpointId, secondPusherCheckpointId);
+
+        // remove current handler for the GET/PUT checkpoint request, and
+        // install a new handler that returns the lastSequence from previous replication
+        dispatcher.clearQueuedResponse(MockHelper.PATH_REGEX_CHECKPOINT);
+        MockCheckpointGet mockCheckpointGet = new MockCheckpointGet();
+        mockCheckpointGet.setLastSequence(lastSequence);
+        mockCheckpointGet.setRev("0-2");
+        dispatcher.enqueueResponse(MockHelper.PATH_REGEX_CHECKPOINT, mockCheckpointGet);
+
+        // start second replication
+        replicationIdleSignal = new CountDownLatch(1);
+        replicationIdleObserver = new ReplicationIdleObserver(replicationIdleSignal);
+        secondPusher.addChangeListener(replicationIdleObserver);
+        secondPusher.start();
+
+        // wait until we get an IDLE event
+        successful = replicationIdleSignal.await(30, TimeUnit.SECONDS);
+        assertTrue(successful);
+        stopReplication2(secondPusher);
+
+    }
+
+
+    public static class ReplicationIdleObserver implements Replication.ChangeListener {
+
+        private CountDownLatch doneSignal;
+
+        public ReplicationIdleObserver(CountDownLatch doneSignal) {
+            this.doneSignal = doneSignal;
+        }
+
+        @Override
+        public void changed(Replication.ChangeEvent event) {
+
+            if (event.getTransition() != null && event.getTransition().getDestination() == ReplicationState.IDLE) {
+                doneSignal.countDown();
+            }
+        }
+
+    }
+
 
 }

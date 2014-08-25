@@ -618,29 +618,7 @@ public class ReplicationTest extends LiteTestCase {
 
     }
 
-    private HttpClientFactory mockFactoryFactory(final CustomizableMockHttpClient mockHttpClient) {
-        return new HttpClientFactory() {
-            @Override
-            public HttpClient getHttpClient() {
-                return mockHttpClient;
-            }
 
-            @Override
-            public void addCookies(List<Cookie> cookies) {
-
-            }
-
-            @Override
-            public void deleteCookie(String name) {
-
-            }
-
-            @Override
-            public CookieStore getCookieStore() {
-                return null;
-            }
-        };
-    }
 
     // Reproduces issue #167
     // https://github.com/couchbase/couchbase-lite-android/issues/167
@@ -3161,14 +3139,7 @@ public class ReplicationTest extends LiteTestCase {
     }
 
 
-    private Document createDocWithProperties(Map<String, Object> properties1) throws CouchbaseLiteException {
-        Document doc1 = database.createDocument();
-        UnsavedRevision revUnsaved = doc1.createRevision();
-        revUnsaved.setUserProperties(properties1);
-        SavedRevision rev = revUnsaved.save();
-        assertNotNull(rev);
-        return doc1;
-    }
+
 
     public void disabledTestCheckpointingWithServerError() throws Exception {
 

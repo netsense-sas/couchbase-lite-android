@@ -123,6 +123,14 @@ public class MockDispatcher extends Dispatcher {
         responseQueue.add(MockHelper.wrap(response));
     }
 
+    public void clearQueuedResponse(String pathRegex) {
+        // get the response queue for this path regex
+        BlockingQueue<SmartMockResponse> responseQueue = queueMap.get(pathRegex);
+        if (responseQueue != null) {
+            responseQueue.clear();
+        }
+    }
+
     public RecordedRequest takeRequest(String pathRegex) {
         BlockingQueue<RecordedRequest> queue = recordedRequestQueueMap.get(pathRegex);
         if (queue == null) {

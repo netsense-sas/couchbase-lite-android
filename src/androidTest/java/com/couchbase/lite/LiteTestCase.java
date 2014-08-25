@@ -4,7 +4,9 @@ import com.couchbase.lite.internal.RevisionInternal;
 import com.couchbase.lite.mockserver.MockDispatcher;
 import com.couchbase.lite.mockserver.MockDocumentGet;
 import com.couchbase.lite.mockserver.MockHelper;
+import com.couchbase.lite.replicator.CustomizableMockHttpClient;
 import com.couchbase.lite.replicator2.ReplicationState;
+import com.couchbase.lite.support.HttpClientFactory;
 import com.couchbase.test.lite.*;
 
 import com.couchbase.lite.internal.Body;
@@ -20,6 +22,9 @@ import junit.framework.Assert;
 
 import org.apache.commons.io.IOUtils;
 import org.apache.commons.io.output.ByteArrayOutputStream;
+import org.apache.http.client.CookieStore;
+import org.apache.http.client.HttpClient;
+import org.apache.http.cookie.Cookie;
 import org.codehaus.jackson.map.ObjectMapper;
 import org.codehaus.jackson.type.TypeReference;
 
@@ -639,6 +644,39 @@ public abstract class LiteTestCase extends LiteTestCaseBase {
             throw new RuntimeException(e);
         }
 
+    }
+
+    protected Document createDocWithProperties(Map<String, Object> properties1) throws CouchbaseLiteException {
+        Document doc1 = database.createDocument();
+        UnsavedRevision revUnsaved = doc1.createRevision();
+        revUnsaved.setUserProperties(properties1);
+        SavedRevision rev = revUnsaved.save();
+        assertNotNull(rev);
+        return doc1;
+    }
+
+    protected HttpClientFactory mockFactoryFactory(final CustomizableMockHttpClient mockHttpClient) {
+        return new HttpClientFactory() {
+            @Override
+            public HttpClient getHttpClient() {
+                return mockHttpClient;
+            }
+
+            @Override
+            public void addCookies(List<Cookie> cookies) {
+
+            }
+
+            @Override
+            public void deleteCookie(String name) {
+
+            }
+
+            @Override
+            public CookieStore getCookieStore() {
+                return null;
+            }
+        };
     }
 
     protected void attachmentAsserts(String docAttachName, Document doc) throws IOException, CouchbaseLiteException {
