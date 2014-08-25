@@ -1484,6 +1484,84 @@ public class ReplicationTest extends LiteTestCase {
         assertFalse(pusher.serverIsSyncGatewayVersion("0.94"));
     }
 
+    /**
+     * https://github.com/couchbase/couchbase-lite-android/issues/243
+     */
+    public void testDifferentCheckpointsFilteredReplication() throws Exception {
+
+        Replication pullerNoFilter = database.createPullReplication2(getReplicationURL());
+        String noFilterCheckpointDocId = pullerNoFilter.remoteCheckpointDocID();
+
+        Replication pullerWithFilter1 = database.createPullReplication2(getReplicationURL());
+        pullerWithFilter1.setFilter("foo/bar");
+        Map<String, Object> filterParams= new HashMap<String, Object>();
+        filterParams.put("a", "aval");
+        filterParams.put("b", "bval");
+        pullerWithFilter1.setDocIds(Arrays.asList("doc3", "doc1", "doc2"));
+        pullerWithFilter1.setFilterParams(filterParams);
+
+        String withFilterCheckpointDocId = pullerWithFilter1.remoteCheckpointDocID();
+        assertFalse(withFilterCheckpointDocId.equals(noFilterCheckpointDocId));
+
+        Replication pullerWithFilter2 = database.createPullReplication2(getReplicationURL());
+        pullerWithFilter2.setFilter("foo/bar");
+        filterParams= new HashMap<String, Object>();
+        filterParams.put("b", "bval");
+        filterParams.put("a", "aval");
+        pullerWithFilter2.setDocIds(Arrays.asList("doc2", "doc3", "doc1"));
+        pullerWithFilter2.setFilterParams(filterParams);
+
+        String withFilterCheckpointDocId2 = pullerWithFilter2.remoteCheckpointDocID();
+        assertTrue(withFilterCheckpointDocId.equals(withFilterCheckpointDocId2));
+
+
+    }
+
+    public void testSetReplicationCookie() throws Exception {
+
+        URL replicationUrl = getReplicationURL();
+        Replication puller = database.createPullReplication2(replicationUrl);
+        String cookieName = "foo";
+        String cookieVal = "bar";
+        boolean isSecure = false;
+        boolean httpOnly = false;
+
+        // expiration date - 1 day from now
+        Calendar cal = Calendar.getInstance();
+        cal.setTime(new Date());
+        int numDaysToAdd = 1;
+        cal.add(Calendar.DATE, numDaysToAdd);
+        Date expirationDate = cal.getTime();
+
+        // set the cookie
+        puller.setCookie(cookieName, cookieVal, "", expirationDate, isSecure, httpOnly);
+
+        // make sure it made it into cookie store and has expected params
+        CookieStore cookieStore = puller.getClientFactory().getCookieStore();
+        List<Cookie> cookies = cookieStore.getCookies();
+        assertEquals(1, cookies.size());
+        Cookie cookie = cookies.get(0);
+        assertEquals(cookieName, cookie.getName());
+        assertEquals(cookieVal, cookie.getValue());
+        assertEquals(replicationUrl.getHost(), cookie.getDomain());
+        assertEquals(replicationUrl.getPath(), cookie.getPath());
+        assertEquals(expirationDate, cookie.getExpiryDate());
+        assertEquals(isSecure, cookie.isSecure());
+
+        // add a second cookie
+        String cookieName2 = "foo2";
+        puller.setCookie(cookieName2, cookieVal, "", expirationDate, isSecure, false);
+        assertEquals(2, cookieStore.getCookies().size());
+
+        // delete cookie
+        puller.deleteCookie(cookieName2);
+
+        // should only have the original cookie left
+        assertEquals(1, cookieStore.getCookies().size());
+        assertEquals(cookieName, cookieStore.getCookies().get(0).getName());
+
+
+    }
 
     public static class ReplicationIdleObserver implements Replication.ChangeListener {
 
