@@ -9,6 +9,7 @@ import com.couchbase.lite.LiveQuery;
 import com.couchbase.lite.Manager;
 import com.couchbase.lite.Mapper;
 import com.couchbase.lite.QueryOptions;
+import com.couchbase.lite.SavedRevision;
 import com.couchbase.lite.View;
 import com.couchbase.lite.internal.RevisionInternal;
 import com.couchbase.lite.mockserver.MockBulkDocs;
@@ -22,6 +23,7 @@ import com.couchbase.lite.mockserver.MockDocumentPut;
 import com.couchbase.lite.mockserver.MockHelper;
 import com.couchbase.lite.mockserver.MockRevsDiff;
 import com.couchbase.lite.replicator.CustomizableMockHttpClient;
+import com.couchbase.lite.support.HttpClientFactory;
 import com.couchbase.lite.util.Log;
 import com.squareup.okhttp.mockwebserver.MockResponse;
 import com.squareup.okhttp.mockwebserver.MockWebServer;
@@ -29,8 +31,11 @@ import com.squareup.okhttp.mockwebserver.RecordedRequest;
 
 import junit.framework.Assert;
 
+import org.apache.http.HttpRequest;
 import org.apache.http.HttpResponse;
 import org.apache.http.client.CookieStore;
+import org.apache.http.client.HttpClient;
+import org.apache.http.client.methods.HttpPost;
 import org.apache.http.client.methods.HttpUriRequest;
 import org.apache.http.cookie.Cookie;
 
@@ -1005,6 +1010,82 @@ public class ReplicationTest extends LiteTestCase {
         boolean success = replicationDoneSignal.await(60, TimeUnit.SECONDS);
         assertTrue(success);
         server.shutdown();
+
+
+    }
+
+    /**
+     * Regression test for issue couchbase/couchbase-lite-android#174
+     */
+    public void testAllLeafRevisionsArePushed() throws Exception {
+
+        final CustomizableMockHttpClient mockHttpClient = new CustomizableMockHttpClient();
+        mockHttpClient.addResponderRevDiffsAllMissing();
+        mockHttpClient.setResponseDelayMilliseconds(250);
+        mockHttpClient.addResponderFakeLocalDocumentUpdate404();
+
+        HttpClientFactory mockHttpClientFactory = new HttpClientFactory() {
+            @Override
+            public HttpClient getHttpClient() {
+                return mockHttpClient;
+            }
+
+            @Override
+            public void addCookies(List<Cookie> cookies) {
+
+            }
+
+            @Override
+            public void deleteCookie(String name) {
+
+            }
+
+            @Override
+            public CookieStore getCookieStore() {
+                return null;
+            }
+        };
+        manager.setDefaultHttpClientFactory(mockHttpClientFactory);
+
+        Document doc = database.createDocument();
+        SavedRevision rev1a = doc.createRevision().save();
+        SavedRevision rev2a = createRevisionWithRandomProps(rev1a, false);
+        SavedRevision rev3a = createRevisionWithRandomProps(rev2a, false);
+
+        // delete the branch we've been using, then create a new one to replace it
+        SavedRevision rev4a = rev3a.deleteDocument();
+        SavedRevision rev2b = createRevisionWithRandomProps(rev1a, true);
+        assertEquals(rev2b.getId(), doc.getCurrentRevisionId());
+
+        // sync with remote DB -- should push both leaf revisions
+        Replication push = database.createPushReplication2(getReplicationURL());
+
+        runReplication2(push);
+        assertNull(push.getLastError());
+
+        // find the _revs_diff captured request and decode into json
+        boolean foundRevsDiff = false;
+        List<HttpRequest> captured = mockHttpClient.getCapturedRequests();
+        for (HttpRequest httpRequest : captured) {
+
+            if (httpRequest instanceof HttpPost) {
+                HttpPost httpPost = (HttpPost) httpRequest;
+                if (httpPost.getURI().toString().endsWith("_revs_diff")) {
+                    foundRevsDiff = true;
+                    Map<String, Object> jsonMap = CustomizableMockHttpClient.getJsonMapFromRequest(httpPost);
+
+                    // assert that it contains the expected revisions
+                    List<String> revisionIds = (List) jsonMap.get(doc.getId());
+                    assertEquals(2, revisionIds.size());
+                    assertTrue(revisionIds.contains(rev4a.getId()));
+                    assertTrue(revisionIds.contains(rev2b.getId()));
+                }
+
+            }
+
+
+        }
+        assertTrue(foundRevsDiff);
 
 
     }
