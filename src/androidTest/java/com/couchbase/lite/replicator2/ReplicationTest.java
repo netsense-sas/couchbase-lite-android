@@ -8,7 +8,10 @@ import com.couchbase.lite.LiteTestCase;
 import com.couchbase.lite.LiveQuery;
 import com.couchbase.lite.Manager;
 import com.couchbase.lite.Mapper;
+import com.couchbase.lite.Query;
+import com.couchbase.lite.QueryEnumerator;
 import com.couchbase.lite.QueryOptions;
+import com.couchbase.lite.QueryRow;
 import com.couchbase.lite.SavedRevision;
 import com.couchbase.lite.View;
 import com.couchbase.lite.internal.RevisionInternal;
@@ -46,6 +49,7 @@ import java.util.Arrays;
 import java.util.Calendar;
 import java.util.Date;
 import java.util.HashMap;
+import java.util.Iterator;
 import java.util.List;
 import java.util.Map;
 import java.util.concurrent.CountDownLatch;
@@ -1087,6 +1091,125 @@ public class ReplicationTest extends LiteTestCase {
         }
         assertTrue(foundRevsDiff);
 
+
+    }
+
+
+    /**
+     * Verify that when a conflict is resolved on (mock) Sync Gateway
+     * and a pull replication is done, the conflict is resolved locally.
+     *
+     * - Create local docs in conflict
+     * - Simulate sync gw responses that resolve the conflict
+     * - Do pull replication
+     * - Assert conflict is resolved locally
+     *
+     */
+    public void testRemoteConflictResolution() throws Exception {
+
+        // Create a document with two conflicting edits.
+        Document doc = database.createDocument();
+        SavedRevision rev1 = doc.createRevision().save();
+        SavedRevision rev2a = createRevisionWithRandomProps(rev1, false);
+        SavedRevision rev2b = createRevisionWithRandomProps(rev1, true);
+
+        // make sure we can query the db to get the conflict
+        Query allDocsQuery = database.createAllDocumentsQuery();
+        allDocsQuery.setAllDocsMode(Query.AllDocsMode.ONLY_CONFLICTS);
+        QueryEnumerator rows = allDocsQuery.run();
+        boolean foundDoc = false;
+        assertEquals(1, rows.getCount());
+        for (Iterator<QueryRow> it = rows; it.hasNext();) {
+            QueryRow row = it.next();
+            if (row.getDocument().getId().equals(doc.getId())) {
+                foundDoc = true;
+            }
+        }
+        assertTrue(foundDoc);
+
+        // make sure doc in conflict
+        assertTrue(doc.getConflictingRevisions().size() > 1);
+
+        // create mockwebserver and custom dispatcher
+        MockDispatcher dispatcher = new MockDispatcher();
+        MockWebServer server = MockHelper.getMockWebServer(dispatcher);
+        dispatcher.setServerType(MockDispatcher.ServerType.COUCHDB);
+
+        // checkpoint GET response w/ 404
+        MockResponse fakeCheckpointResponse = new MockResponse();
+        MockHelper.set404NotFoundJson(fakeCheckpointResponse);
+        dispatcher.enqueueResponse(MockHelper.PATH_REGEX_CHECKPOINT, fakeCheckpointResponse);
+
+        int rev3PromotedGeneration = 3;
+        String rev3PromotedDigest = "d46b";
+        String rev3Promoted = String.format("%d-%s", rev3PromotedGeneration, rev3PromotedDigest);
+
+        int rev3DeletedGeneration = 3;
+        String rev3DeletedDigest = "e768";
+        String rev3Deleted = String.format("%d-%s", rev3DeletedGeneration, rev3DeletedDigest);
+
+        int seq = 4;
+
+        // _changes response
+        MockChangesFeed mockChangesFeed = new MockChangesFeed();
+        MockChangesFeed.MockChangedDoc mockChangedDoc = new MockChangesFeed.MockChangedDoc();
+        mockChangedDoc.setDocId(doc.getId());
+        mockChangedDoc.setSeq(seq);
+        mockChangedDoc.setChangedRevIds(Arrays.asList(rev3Promoted, rev3Deleted));
+        mockChangesFeed.add(mockChangedDoc);
+        MockResponse response = mockChangesFeed.generateMockResponse();
+        dispatcher.enqueueResponse(MockHelper.PATH_REGEX_CHANGES, response);
+
+        // docRev3Promoted response
+        MockDocumentGet.MockDocument docRev3Promoted = new MockDocumentGet.MockDocument(doc.getId(), rev3Promoted, seq);
+        docRev3Promoted.setJsonMap(MockHelper.generateRandomJsonMap());
+        MockDocumentGet mockDocRev3PromotedGet = new MockDocumentGet(docRev3Promoted);
+        Map<String, Object> rev3PromotedRevHistory = new HashMap<String, Object>();
+        rev3PromotedRevHistory.put("start", rev3PromotedGeneration);
+        List ids = Arrays.asList(
+                rev3PromotedDigest,
+                RevisionInternal.digestFromRevID(rev2a.getId()),
+                RevisionInternal.digestFromRevID(rev2b.getId())
+        );
+        rev3PromotedRevHistory.put("ids", ids);
+        mockDocRev3PromotedGet.setRevHistoryMap(rev3PromotedRevHistory);
+        dispatcher.enqueueResponse(docRev3Promoted.getDocPathRegex(), mockDocRev3PromotedGet.generateMockResponse());
+
+        // docRev3Deleted response
+        MockDocumentGet.MockDocument docRev3Deleted = new MockDocumentGet.MockDocument(doc.getId(), rev3Deleted, seq);
+        Map<String, Object> jsonMap = MockHelper.generateRandomJsonMap();
+        jsonMap.put("_deleted", true);
+        docRev3Deleted.setJsonMap(jsonMap);
+        MockDocumentGet mockDocRev3DeletedGet = new MockDocumentGet(docRev3Deleted);
+        Map<String, Object> rev3DeletedRevHistory = new HashMap<String, Object>();
+        rev3DeletedRevHistory.put("start", rev3DeletedGeneration);
+        ids = Arrays.asList(
+                rev3DeletedDigest,
+                RevisionInternal.digestFromRevID(rev2b.getId()),
+                RevisionInternal.digestFromRevID(rev1.getId())
+        );
+        rev3DeletedRevHistory.put("ids", ids);
+        mockDocRev3DeletedGet.setRevHistoryMap(rev3DeletedRevHistory);
+        dispatcher.enqueueResponse(docRev3Deleted.getDocPathRegex(), mockDocRev3DeletedGet.generateMockResponse());
+
+        // start mock server
+        server.play();
+
+        // run pull replication
+        Replication pullReplication = database.createPullReplication2(server.getUrl("/db"));
+        runReplication2(pullReplication);
+        assertNull(pullReplication.getLastError());
+
+        // assertions about outgoing requests
+        RecordedRequest changesRequest = dispatcher.takeRequest(MockHelper.PATH_REGEX_CHANGES);
+        assertNotNull(changesRequest);
+        RecordedRequest docRev3DeletedRequest = dispatcher.takeRequest(docRev3Deleted.getDocPathRegex());
+        assertNotNull(docRev3DeletedRequest);
+        RecordedRequest docRev3PromotedRequest = dispatcher.takeRequest(docRev3Promoted.getDocPathRegex());
+        assertNotNull(docRev3PromotedRequest);
+
+        // Make sure the conflict was resolved locally.
+        assertEquals(1, doc.getConflictingRevisions().size());
 
     }
 
