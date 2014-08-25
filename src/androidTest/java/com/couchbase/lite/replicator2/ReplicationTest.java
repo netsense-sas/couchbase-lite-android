@@ -333,7 +333,6 @@ public class ReplicationTest extends LiteTestCase {
         // wait until the mock webserver receives a PUT checkpoint request with doc #2's sequence
         List<RecordedRequest> checkpointRequests = waitForPutCheckpointRequestWithSequence(dispatcher, mockDoc2.getDocSeq());
         validateCheckpointRequestsRevisions(checkpointRequests);
-        assertEquals(1, checkpointRequests.size());
 
         // give it some time to actually save checkpoint to db
         workAroundSaveCheckpointRaceCondition();
@@ -557,7 +556,6 @@ public class ReplicationTest extends LiteTestCase {
         // this avoids ugly and confusing exceptions in the logs.
         List<RecordedRequest> checkpointRequests = waitForPutCheckpointRequestWithSequence(dispatcher, numMockRemoteDocs - 1);
         validateCheckpointRequestsRevisions(checkpointRequests);
-        assertEquals(1, checkpointRequests.size());
 
         if (shutdownMockWebserver) {
             server.shutdown();
