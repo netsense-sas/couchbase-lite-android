@@ -946,6 +946,70 @@ public class ReplicationTest extends LiteTestCase {
 
     }
 
+    /**
+     * https://github.com/couchbase/couchbase-lite-java-core/issues/241
+     *
+     * - Set the "retry time" to a short number
+     * - Setup mock server to return 404 for all _changes requests
+     * - Start continuous replication
+     * - Sleep for 5X retry time
+     * - Assert that we've received at least two requests to _changes feed
+     * - Stop replication + cleanup
+     *
+     */
+    public void testContinuousReplication404Changes() throws Exception {
+
+        // create mockwebserver and custom dispatcher
+        MockDispatcher dispatcher = new MockDispatcher();
+        MockWebServer server = MockHelper.getMockWebServer(dispatcher);
+        dispatcher.setServerType(MockDispatcher.ServerType.SYNC_GW);
+        server.play();
+
+        // mock checkpoint GET response w/ 404
+        MockResponse fakeCheckpointResponse = new MockResponse();
+        MockHelper.set404NotFoundJson(fakeCheckpointResponse);
+        dispatcher.enqueueResponse(MockHelper.PATH_REGEX_CHECKPOINT, fakeCheckpointResponse);
+
+        // mock _changes response
+        for (int i=0; i<100; i++) {
+            MockResponse mockChangesFeed = new MockResponse();
+            MockHelper.set404NotFoundJson(mockChangesFeed);
+            dispatcher.enqueueResponse(MockHelper.PATH_REGEX_CHANGES, mockChangesFeed);
+        }
+
+        // create new replication
+        int retryDelaySeconds = 1;
+        Replication pull = database.createPullReplication2(server.getUrl("/db"));
+        pull.setContinuous(true);
+
+        // add done listener to replication
+        CountDownLatch replicationDoneSignal = new CountDownLatch(1);
+        ReplicationFinishedObserver replicationFinishedObserver = new ReplicationFinishedObserver(replicationDoneSignal);
+        pull.addChangeListener(replicationFinishedObserver);
+
+        // start the replication
+        pull.start();
+
+        // wait until we get a few requests
+        Log.d(TAG, "Waiting for a _changes request");
+        RecordedRequest changesReq = dispatcher.takeRequestBlocking(MockHelper.PATH_REGEX_CHANGES);
+        Log.d(TAG, "Got first _changes request, waiting for another _changes request");
+        changesReq = dispatcher.takeRequestBlocking(MockHelper.PATH_REGEX_CHANGES);
+        Log.d(TAG, "Got second _changes request, waiting for another _changes request");
+        changesReq = dispatcher.takeRequestBlocking(MockHelper.PATH_REGEX_CHANGES);
+        Log.d(TAG, "Got third _changes request, stopping replicator");
+
+        // the replication should still be running
+        assertEquals(1, replicationDoneSignal.getCount());
+
+        // cleanup
+        pull.stop();
+        boolean success = replicationDoneSignal.await(60, TimeUnit.SECONDS);
+        assertTrue(success);
+        server.shutdown();
+
+
+    }
 
     public static class ReplicationIdleObserver implements Replication.ChangeListener {
 
@@ -965,5 +1029,25 @@ public class ReplicationTest extends LiteTestCase {
 
     }
 
+    public static class ReplicationFinishedObserver implements Replication.ChangeListener {
+
+        private CountDownLatch doneSignal;
+
+        public ReplicationFinishedObserver(CountDownLatch doneSignal) {
+            this.doneSignal = doneSignal;
+        }
+
+        @Override
+        public void changed(Replication.ChangeEvent event) {
+
+            if (event.getTransition() != null) {
+                Log.d(TAG, "transition: %s", event.getTransition());
+                if (event.getTransition().getDestination() == ReplicationState.STOPPED) {
+                    doneSignal.countDown();
+                }
+            }
+        }
+
+    }
 
 }
