@@ -2348,12 +2348,154 @@ public class ReplicationTest extends LiteTestCase {
 
     }
 
+    /**
+     * Test for the goOffline() method.
+     */
     public void testGoOffline() throws Exception {
 
-        // need to port goOffline stuff for this
-        throw new RuntimeException("Not ported");
+        final int numMockDocsToServe = 2;
+
+        // create mockwebserver and custom dispatcher
+        MockDispatcher dispatcher = new MockDispatcher();
+        MockWebServer server = MockHelper.getMockWebServer(dispatcher);
+        dispatcher.setServerType(MockDispatcher.ServerType.COUCHDB);
+        server.play();
+
+        // mock documents to be pulled
+        MockDocumentGet.MockDocument mockDoc1 = new MockDocumentGet.MockDocument("doc1", "1-5e38", 1);
+        mockDoc1.setJsonMap(MockHelper.generateRandomJsonMap());
+        mockDoc1.setAttachmentName("attachment.png");
+        MockDocumentGet.MockDocument mockDoc2 = new MockDocumentGet.MockDocument("doc2", "1-563b", 2);
+        mockDoc2.setJsonMap(MockHelper.generateRandomJsonMap());
+        mockDoc2.setAttachmentName("attachment2.png");
+
+        // fake checkpoint PUT and GET response w/ 404
+        MockCheckpointPut fakeCheckpointResponse = new MockCheckpointPut();
+        fakeCheckpointResponse.setSticky(true);
+        dispatcher.enqueueResponse(MockHelper.PATH_REGEX_CHECKPOINT, fakeCheckpointResponse);
+
+        // _changes response with docs
+        MockChangesFeed mockChangesFeed = new MockChangesFeed();
+        mockChangesFeed.add(new MockChangesFeed.MockChangedDoc(mockDoc1));
+        dispatcher.enqueueResponse(MockHelper.PATH_REGEX_CHANGES, mockChangesFeed.generateMockResponse());
+
+        // next _changes response will block (eg, longpoll reponse with no changes to return)
+        MockChangesFeed mockChangesFeedEmpty = new MockChangesFeed();
+        dispatcher.enqueueResponse(MockHelper.PATH_REGEX_CHANGES, mockChangesFeedEmpty.generateMockResponse());
+
+        // doc1 response
+        MockDocumentGet mockDocumentGet = new MockDocumentGet(mockDoc1);
+        dispatcher.enqueueResponse(mockDoc1.getDocPathRegex(), mockDocumentGet.generateMockResponse());
+
+        // doc2 response
+        mockDocumentGet = new MockDocumentGet(mockDoc2);
+        dispatcher.enqueueResponse(mockDoc2.getDocPathRegex(), mockDocumentGet.generateMockResponse());
+
+        // create replication
+        Replication pullReplication = database.createPullReplication2(server.getUrl("/db"));
+        pullReplication.setContinuous(true);
+
+        // add a change listener
+        final CountDownLatch idleCountdownLatch = new CountDownLatch(1);
+        final CountDownLatch receivedAllDocs = new CountDownLatch(1);
+        pullReplication.addChangeListener(new Replication.ChangeListener() {
+            @Override
+            public void changed(Replication.ChangeEvent event) {
+                if (event.getTransition() != null && event.getTransition().getDestination() == ReplicationState.IDLE) {
+                    idleCountdownLatch.countDown();
+                }
+                if (event.getCompletedChangeCount() == numMockDocsToServe) {
+                    receivedAllDocs.countDown();
+                }
+            }
+        });
+
+        // start replication
+        pullReplication.start();
+
+        // wait until it goes into idle state
+        boolean success = idleCountdownLatch.await(120, TimeUnit.SECONDS);
+        assertTrue(success);
+
+        // put the replication offline
+        putReplicationOffline(pullReplication);
+
+        // at this point, we shouldn't have received all of the docs yet.
+        assertTrue(receivedAllDocs.getCount() > 0);
+
+        // return some more docs on _changes feed
+        MockChangesFeed mockChangesFeed2 = new MockChangesFeed();
+        mockChangesFeed2.add(new MockChangesFeed.MockChangedDoc(mockDoc2));
+        dispatcher.enqueueResponse(MockHelper.PATH_REGEX_CHANGES, mockChangesFeed2.generateMockResponse());
+
+        // put the replication online (should see the new docs)
+        putReplicationOnline(pullReplication);
+
+        // wait until we receive all the docs
+        success = receivedAllDocs.await(120, TimeUnit.SECONDS);
+        assertTrue(success);
+
+        // wait until we try to PUT a checkpoint request with doc2's sequence
+        waitForPutCheckpointRequestWithSeq(dispatcher, mockDoc2.getDocSeq());
+
+        // make sure all docs in local db
+        Map<String, Object> allDocs = database.getAllDocs(new QueryOptions());
+        Integer totalRows = (Integer) allDocs.get("total_rows");
+        List rows = (List) allDocs.get("rows");
+        assertEquals(numMockDocsToServe, totalRows.intValue());
+        assertEquals(numMockDocsToServe, rows.size());
+
+        // cleanup
+        stopReplication2(pullReplication);
+        server.shutdown();
 
     }
+
+    private void putReplicationOffline(Replication replication) throws InterruptedException {
+
+        // this was a useless test, the replication wasn't even started
+        final CountDownLatch wentOffline = new CountDownLatch(1);
+        Replication.ChangeListener changeListener = new Replication.ChangeListener() {
+            @Override
+            public void changed(Replication.ChangeEvent event) {
+                if (event.getTransition().getDestination() == ReplicationState.OFFLINE) {
+                    wentOffline.countDown();
+                }
+            }
+        };
+        replication.addChangeListener(changeListener);
+
+        replication.goOffline();
+        boolean succeeded = wentOffline.await(30, TimeUnit.SECONDS);
+        assertTrue(succeeded);
+
+        replication.removeChangeListener(changeListener);
+
+    }
+
+
+    private void putReplicationOnline(Replication replication) throws InterruptedException {
+
+        // this was a useless test, the replication wasn't even started
+        final CountDownLatch wentOnline = new CountDownLatch(1);
+        Replication.ChangeListener changeListener = new Replication.ChangeListener() {
+            @Override
+            public void changed(Replication.ChangeEvent event) {
+                if (event.getTransition().getDestination() == ReplicationState.RUNNING) {
+                    wentOnline.countDown();
+                }
+            }
+        };
+        replication.addChangeListener(changeListener);
+
+        replication.goOnline();
+        boolean succeeded = wentOnline.await(30, TimeUnit.SECONDS);
+        assertTrue(succeeded);
+
+        replication.removeChangeListener(changeListener);
+
+    }
+
 
     /**
      * https://github.com/couchbase/couchbase-lite-java-core/issues/253
@@ -2384,7 +2526,6 @@ public class ReplicationTest extends LiteTestCase {
     public void testGetReplicator() throws Throwable {
 
         // port this last, because it will require refactoring replicator2 (or using interfaces or something)
-
         throw new RuntimeException("Not ported");
 
     }
@@ -2392,7 +2533,6 @@ public class ReplicationTest extends LiteTestCase {
     public void testGetReplicatorWithAuth() throws Throwable {
 
         // port this last, because it will require refactoring replicator2 (or using interfaces or something)
-
         throw new RuntimeException("Not ported");
 
     }
