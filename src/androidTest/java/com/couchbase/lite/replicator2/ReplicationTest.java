@@ -1,5 +1,6 @@
 package com.couchbase.lite.replicator2;
 
+import com.couchbase.lite.CouchbaseLiteException;
 import com.couchbase.lite.Database;
 import com.couchbase.lite.Document;
 import com.couchbase.lite.DocumentChange;
@@ -54,6 +55,7 @@ import org.apache.http.entity.mime.MultipartEntity;
 
 import java.io.IOException;
 import java.io.InputStream;
+import java.net.MalformedURLException;
 import java.net.URL;
 import java.util.ArrayList;
 import java.util.Arrays;
@@ -2098,6 +2100,54 @@ public class ReplicationTest extends LiteTestCase {
 
         String expected = "http://10.0.0.3:4984/todos/foo";
         Assert.assertEquals(expected, relativeUrlString);
+
+    }
+
+    public void testChannels() throws Exception {
+
+        URL remote = getReplicationURL();
+        Replication replicator = database.createPullReplication2(remote);
+        List<String> channels = new ArrayList<String>();
+        channels.add("chan1");
+        channels.add("chan2");
+        replicator.setChannels(channels);
+        Assert.assertEquals(channels, replicator.getChannels());
+        replicator.setChannels(null);
+        Assert.assertTrue(replicator.getChannels().isEmpty());
+
+    }
+
+    public void testChannelsMore() throws MalformedURLException, CouchbaseLiteException {
+
+        Database  db = startDatabase();
+        URL fakeRemoteURL = new URL("http://couchbase.com/no_such_db");
+        Replication r1 = db.createPullReplication2(fakeRemoteURL);
+
+        assertTrue(r1.getChannels().isEmpty());
+        r1.setFilter("foo/bar");
+        assertTrue(r1.getChannels().isEmpty());
+        Map<String, Object> filterParams= new HashMap<String, Object>();
+        filterParams.put("a", "b");
+        r1.setFilterParams(filterParams);
+        assertTrue(r1.getChannels().isEmpty());
+
+        r1.setChannels(null);
+        assertEquals("foo/bar", r1.getFilter());
+        assertEquals(filterParams, r1.getFilterParams());
+
+        List<String> channels = new ArrayList<String>();
+        channels.add("NBC");
+        channels.add("MTV");
+        r1.setChannels(channels);
+        assertEquals(channels, r1.getChannels());
+        assertEquals("sync_gateway/bychannel", r1.getFilter());
+        filterParams= new HashMap<String, Object>();
+        filterParams.put("channels", "NBC,MTV");
+        assertEquals(filterParams, r1.getFilterParams());
+
+        r1.setChannels(null);
+        assertEquals(r1.getFilter(), null);
+        assertEquals(null ,r1.getFilterParams());
 
     }
 
