@@ -214,6 +214,9 @@ public class ReplicationTest extends LiteTestCase {
      * - Single one-shot pull replication
      * - Against simulated sync gateway
      * - Remote docs have attachments
+     *
+     * TODO: sporadic assertion failure when checking rev field of PUT checkpoint requests
+     *
      */
     public void testMockSinglePullSyncGwAttachments() throws Exception {
 
@@ -700,6 +703,8 @@ public class ReplicationTest extends LiteTestCase {
      * waiting on connection to be released by the thread calling
      * waitForUpdateThread().  When the deadlock bug was present,
      * this test would trigger the deadlock and never finish.
+     *
+     * TODO: sporadic assertion failure when checking rev field of PUT checkpoint requests
      */
     public void testPullerWithLiveQuery() throws Throwable {
 
@@ -1689,22 +1694,6 @@ public class ReplicationTest extends LiteTestCase {
     }
 
     /**
-     * https://github.com/couchbase/couchbase-lite-java-core/issues/253
-     */
-    public void testReplicationOnlineExtraneousChangeTrackers() throws Exception {
-        throw new RuntimeException("needs porting");
-    }
-
-    public void testOneShotReplicationErrorNotification() throws Throwable {
-        throw new RuntimeException("needs porting");
-    }
-
-
-    public void testContinuousReplicationErrorNotification() throws Throwable {
-        throw new RuntimeException("needs porting");
-    }
-
-    /**
      * Reproduces https://github.com/couchbase/couchbase-lite-android/issues/167
      */
     public void testPushPurgedDoc() throws Throwable {
@@ -2302,9 +2291,75 @@ public class ReplicationTest extends LiteTestCase {
     }
 
 
-    public void testReplicatorErrorStatus() throws Exception {
+    /**
+     * Verify that running a one-shot push replication will complete when run against a
+     * mock server that throws io exceptions on every request.
+     */
+    public void testOneShotReplicationErrorNotification() throws Throwable {
 
-        // need to port auth stuff for this
+        final CustomizableMockHttpClient mockHttpClient = new CustomizableMockHttpClient();
+        mockHttpClient.addResponderThrowExceptionAllRequests();
+
+        URL remote = getReplicationURL();
+
+        manager.setDefaultHttpClientFactory(mockFactoryFactory(mockHttpClient));
+        Replication pusher = database.createPushReplication2(remote);
+
+        runReplication2(pusher);
+
+        assertTrue(pusher.getLastError() != null);
+
+    }
+
+    /**
+     * Verify that running a continuous push replication will emit a change while
+     * in an error state when run against a mock server that returns 500 Internal Server
+     * errors on every request.
+     */
+    public void testContinuousReplicationErrorNotification() throws Throwable {
+
+        final CustomizableMockHttpClient mockHttpClient = new CustomizableMockHttpClient();
+        mockHttpClient.addResponderThrowExceptionAllRequests();
+
+        URL remote = getReplicationURL();
+
+        manager.setDefaultHttpClientFactory(mockFactoryFactory(mockHttpClient));
+        Replication pusher = database.createPushReplication2(remote);
+        pusher.setContinuous(true);
+
+        // add replication observer
+        final CountDownLatch countDownLatch = new CountDownLatch(1);
+        pusher.addChangeListener(new Replication.ChangeListener() {
+            @Override
+            public void changed(Replication.ChangeEvent event) {
+                if (event.getError() != null) {
+                    countDownLatch.countDown();
+                }
+            }
+        });
+
+        // start replication
+        pusher.start();
+
+        boolean success = countDownLatch.await(30, TimeUnit.SECONDS);
+        assertTrue(success);
+
+        pusher.stop();
+
+    }
+
+    public void testGoOffline() throws Exception {
+
+        // need to port goOffline stuff for this
+        throw new RuntimeException("Not ported");
+
+    }
+
+    /**
+     * https://github.com/couchbase/couchbase-lite-java-core/issues/253
+     */
+    public void testReplicationOnlineExtraneousChangeTrackers() throws Exception {
+        // required goOffline support
         throw new RuntimeException("Not ported");
     }
 
@@ -2320,11 +2375,10 @@ public class ReplicationTest extends LiteTestCase {
         throw new RuntimeException("Not ported");
     }
 
-    public void testGoOffline() throws Exception {
+    public void testReplicatorErrorStatus() throws Exception {
 
-        // need to port goOffline stuff for this
+        // need to port auth stuff for this
         throw new RuntimeException("Not ported");
-
     }
 
     public void testGetReplicator() throws Throwable {
