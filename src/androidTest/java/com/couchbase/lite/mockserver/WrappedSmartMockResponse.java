@@ -6,6 +6,8 @@ import com.squareup.okhttp.mockwebserver.RecordedRequest;
 public class WrappedSmartMockResponse implements SmartMockResponse {
 
     private MockResponse mockResponse;
+    private long delayMs;
+
 
     public WrappedSmartMockResponse(MockResponse mockResponse) {
         this.mockResponse = mockResponse;
@@ -23,6 +25,10 @@ public class WrappedSmartMockResponse implements SmartMockResponse {
 
     @Override
     public long delayMs() {
-        return 0;
+        return delayMs;
+    }
+
+    public void setDelayMs(long delayMs) {
+        this.delayMs = delayMs;
     }
 }
