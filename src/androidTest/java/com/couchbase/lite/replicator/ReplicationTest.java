@@ -2083,31 +2083,7 @@ public class ReplicationTest extends LiteTestCase {
     }*/
 
 
-    static class GoOfflinePreloadedPullTarget extends MockPreloadedPullTarget {
 
-        public GoOfflinePreloadedPullTarget(MockDispatcher dispatcher, int numMockDocsToServe, int numDocsPerChangesResponse) {
-            super(dispatcher, numMockDocsToServe, numDocsPerChangesResponse);
-        }
-
-        @Override
-        public MockWebServer getMockWebServer() {
-            MockWebServer server = MockHelper.getMockWebServer(dispatcher);
-
-            List<MockDocumentGet.MockDocument> mockDocs = getMockDocuments();
-
-            addCheckpointResponse();
-
-            // add this a few times to be robust against cases where it
-            // doesn't make _changes requests in exactly expected order
-            addChangesResponse(mockDocs);
-            addChangesResponse(mockDocs);
-            addChangesResponse(mockDocs);
-
-            addMockDocuments(mockDocs);
-
-            return server;
-        }
-    }
 
     /**
      * Test goOffline() method in the context of a continuous pusher.

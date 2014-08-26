@@ -4,6 +4,7 @@ import com.couchbase.lite.internal.RevisionInternal;
 import com.couchbase.lite.mockserver.MockDispatcher;
 import com.couchbase.lite.mockserver.MockDocumentGet;
 import com.couchbase.lite.mockserver.MockHelper;
+import com.couchbase.lite.mockserver.MockPreloadedPullTarget;
 import com.couchbase.lite.replicator.CustomizableMockHttpClient;
 import com.couchbase.lite.replicator2.ReplicationState;
 import com.couchbase.lite.support.HttpClientFactory;
@@ -16,6 +17,7 @@ import com.couchbase.lite.router.Router;
 import com.couchbase.lite.storage.Cursor;
 import com.couchbase.lite.support.FileDirUtils;
 import com.couchbase.lite.util.Log;
+import com.squareup.okhttp.mockwebserver.MockWebServer;
 import com.squareup.okhttp.mockwebserver.RecordedRequest;
 
 import junit.framework.Assert;
@@ -646,6 +648,32 @@ public abstract class LiteTestCase extends LiteTestCaseBase {
             throw new RuntimeException(e);
         }
 
+    }
+
+    public static class GoOfflinePreloadedPullTarget extends MockPreloadedPullTarget {
+
+        public GoOfflinePreloadedPullTarget(MockDispatcher dispatcher, int numMockDocsToServe, int numDocsPerChangesResponse) {
+            super(dispatcher, numMockDocsToServe, numDocsPerChangesResponse);
+        }
+
+        @Override
+        public MockWebServer getMockWebServer() {
+            MockWebServer server = MockHelper.getMockWebServer(dispatcher);
+
+            List<MockDocumentGet.MockDocument> mockDocs = getMockDocuments();
+
+            addCheckpointResponse();
+
+            // add this a few times to be robust against cases where it
+            // doesn't make _changes requests in exactly expected order
+            addChangesResponse(mockDocs);
+            addChangesResponse(mockDocs);
+            addChangesResponse(mockDocs);
+
+            addMockDocuments(mockDocs);
+
+            return server;
+        }
     }
 
     protected Document createDocWithProperties(Map<String, Object> properties1) throws CouchbaseLiteException {

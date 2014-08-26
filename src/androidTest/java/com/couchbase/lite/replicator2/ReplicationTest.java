@@ -1957,6 +1957,91 @@ public class ReplicationTest extends LiteTestCase {
 
     }
 
+
+    /**
+     * Attempting to reproduce couchtalk issue:
+     *
+     * https://github.com/couchbase/couchbase-lite-android/issues/312
+     *
+     * - Start continuous puller against mock SG w/ 50 docs
+     * - After every 10 docs received, restart replication
+     * - Make sure all 50 docs are received and stored in local db
+     *
+     * @throws Exception
+     */
+    public void failingTestMockPullerRestart() throws Exception {
+
+
+        final int numMockRemoteDocs = 50;  // must be multiple of 10!
+        final int numDocsReceivedRestart = 10;  // when we've received this many docs, restart replicator
+
+        final AtomicInteger numDocsPulledLocally = new AtomicInteger(0);
+
+        MockDispatcher dispatcher = new MockDispatcher();
+        dispatcher.setServerType(MockDispatcher.ServerType.COUCHDB);
+        MockWebServer server = new GoOfflinePreloadedPullTarget(dispatcher, numMockRemoteDocs, 1).getMockWebServer();
+
+        server.play();
+
+        final CountDownLatch receivedAllDocs = new CountDownLatch(1);
+        final CountDownLatch receivedSomeDocs = new CountDownLatch(1);
+
+        // run pull replication
+        final com.couchbase.lite.replicator.Replication repl = (com.couchbase.lite.replicator.Replication) database.createPullReplication(server.getUrl("/db"));
+        repl.setContinuous(true);
+        repl.start();
+
+        database.addChangeListener(new Database.ChangeListener() {
+            @Override
+            public void changed(Database.ChangeEvent event) {
+                List<DocumentChange> changes = event.getChanges();
+                for (DocumentChange change : changes) {
+                    numDocsPulledLocally.addAndGet(1);
+                }
+                if (numDocsPulledLocally.get() > numDocsReceivedRestart) {
+                    receivedSomeDocs.countDown();
+                }
+                if (numDocsPulledLocally.get() == numMockRemoteDocs) {
+                    receivedAllDocs.countDown();
+                }
+            }
+        });
+
+        // wait until we received a few docs
+        boolean success = receivedSomeDocs.await(60, TimeUnit.SECONDS);
+        assertTrue(success);
+
+        stopReplication(repl);
+
+        repl.start();
+
+        // wait until we received all mock docs or timeout occurs
+        success = receivedAllDocs.await(60, TimeUnit.SECONDS);
+        assertTrue(success);
+
+        // make sure all docs in local db
+        Map<String, Object> allDocs = database.getAllDocs(new QueryOptions());
+        Integer totalRows = (Integer) allDocs.get("total_rows");
+        List rows = (List) allDocs.get("rows");
+        assertEquals(numMockRemoteDocs, totalRows.intValue());
+        assertEquals(numMockRemoteDocs, rows.size());
+
+        // cleanup / shutdown
+        stopReplication(repl);
+        server.shutdown();
+
+
+    }
+
+    public void testGetReplicator() throws Throwable {
+
+        // port this last, because it will require refactoring replicator2 (or using interfaces or something)
+
+        throw new RuntimeException("Not ported");
+
+    }
+
+
     public static class ReplicationIdleObserver implements Replication.ChangeListener {
 
         private CountDownLatch doneSignal;
