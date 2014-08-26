@@ -2042,7 +2042,7 @@ public class ReplicationTest extends LiteTestCase {
             @Override
             public HttpClient getHttpClient() {
                 CustomizableMockHttpClient mockHttpClient = new CustomizableMockHttpClient();
-                int statusCode = 500;
+                int statusCode = 406;
                 mockHttpClient.addResponderFailAllRequests(statusCode);
                 return mockHttpClient;
             }
@@ -2064,10 +2064,6 @@ public class ReplicationTest extends LiteTestCase {
         };
 
         manager.setDefaultHttpClientFactory(mockHttpClientFactory);
-
-        String dbUrlString = "http://fake.test-url.com:4984/fake/";
-        URL remote = new URL(dbUrlString);
-        final boolean continuous = false;
 
         Replication r1 = database.createPushReplication2(getReplicationURL());
         Assert.assertFalse(r1.isContinuous());
