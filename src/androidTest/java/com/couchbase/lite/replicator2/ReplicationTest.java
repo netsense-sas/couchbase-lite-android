@@ -1812,6 +1812,50 @@ public class ReplicationTest extends LiteTestCase {
 
     }
 
+    /**
+     * Regression test for https://github.com/couchbase/couchbase-lite-java-core/issues/72
+     */
+    public void testPusherBatching() throws Throwable {
+
+        // create a bunch local documents
+        int numDocsToSend = ReplicationInternal.INBOX_CAPACITY * 5;
+        for (int i=0; i < numDocsToSend; i++) {
+            Map<String,Object> properties = new HashMap<String, Object>();
+            properties.put("testPusherBatching", i);
+            createDocumentWithProperties(database, properties);
+        }
+
+        // kick off a one time push replication to a mock
+        final CustomizableMockHttpClient mockHttpClient = new CustomizableMockHttpClient();
+        mockHttpClient.addResponderFakeLocalDocumentUpdate404();
+        HttpClientFactory mockHttpClientFactory = mockFactoryFactory(mockHttpClient);
+        URL remote = getReplicationURL();
+
+        manager.setDefaultHttpClientFactory(mockHttpClientFactory);
+        Replication pusher = database.createPushReplication2(remote);
+        runReplication2(pusher);
+        assertNull(pusher.getLastError());
+
+        int numDocsSent = 0;
+
+        // verify that only INBOX_SIZE documents are included in any given bulk post request
+        List<HttpRequest> capturedRequests = mockHttpClient.getCapturedRequests();
+        for (HttpRequest capturedRequest : capturedRequests) {
+            if (capturedRequest instanceof HttpPost) {
+                HttpPost capturedPostRequest = (HttpPost) capturedRequest;
+                if (capturedPostRequest.getURI().getPath().endsWith("_bulk_docs")) {
+                    ArrayList docs = CustomizableMockHttpClient.extractDocsFromBulkDocsPost(capturedRequest);
+                    String msg = "# of bulk docs pushed should be <= INBOX_CAPACITY";
+                    assertTrue(msg, docs.size() <= ReplicationInternal.INBOX_CAPACITY);
+                    numDocsSent += docs.size();
+                }
+            }
+        }
+
+        assertEquals(numDocsToSend, numDocsSent);
+
+    }
+
     public static class ReplicationIdleObserver implements Replication.ChangeListener {
 
         private CountDownLatch doneSignal;
