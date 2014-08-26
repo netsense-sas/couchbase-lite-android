@@ -41,6 +41,7 @@ import com.squareup.okhttp.mockwebserver.RecordedRequest;
 
 import junit.framework.Assert;
 
+import org.apache.http.Header;
 import org.apache.http.HttpEntity;
 import org.apache.http.HttpRequest;
 import org.apache.http.HttpResponse;
@@ -2151,6 +2152,66 @@ public class ReplicationTest extends LiteTestCase {
 
     }
 
+
+    /**
+     * TODO: this test is unnecessarily slow.  The replicator has to timeout
+     * TODO: while retrying requests.
+     *
+     * @throws Exception
+     */
+    public void testHeaders() throws Exception {
+
+        final CustomizableMockHttpClient mockHttpClient = new CustomizableMockHttpClient();
+        mockHttpClient.addResponderThrowExceptionAllRequests();
+
+        HttpClientFactory mockHttpClientFactory = new HttpClientFactory() {
+            @Override
+            public HttpClient getHttpClient() {
+                return mockHttpClient;
+            }
+
+            @Override
+            public void addCookies(List<Cookie> cookies) {
+
+            }
+
+            @Override
+            public void deleteCookie(String name) {
+
+            }
+
+            @Override
+            public CookieStore getCookieStore() {
+                return null;
+            }
+        };
+
+        URL remote = getReplicationURL();
+
+        manager.setDefaultHttpClientFactory(mockHttpClientFactory);
+        Replication puller = database.createPullReplication2(remote);
+
+        Map<String, Object> headers = new HashMap<String, Object>();
+        headers.put("foo", "bar");
+        puller.setHeaders(headers);
+
+        runReplication2(puller);
+        assertNotNull(puller.getLastError());
+
+        boolean foundFooHeader = false;
+        List<HttpRequest> requests = mockHttpClient.getCapturedRequests();
+        for (HttpRequest request : requests) {
+            Header[] requestHeaders = request.getHeaders("foo");
+            for (Header requestHeader : requestHeaders) {
+                foundFooHeader = true;
+                Assert.assertEquals("bar", requestHeader.getValue());
+            }
+        }
+
+        Assert.assertTrue(foundFooHeader);
+        manager.setDefaultHttpClientFactory(null);
+
+    }
 
     public void testReplicatorErrorStatus() throws Exception {
 
