@@ -2213,6 +2213,99 @@ public class ReplicationTest extends LiteTestCase {
 
     }
 
+    /**
+     * https://github.com/couchbase/couchbase-lite-android/issues/247
+     */
+    public void testPushReplicationRecoverableError() throws Exception {
+        int statusCode = 503;
+        String statusMsg = "Transient Error";
+        boolean expectReplicatorError = false;
+        runPushReplicationWithTransientError(statusCode, statusMsg, expectReplicatorError);
+    }
+
+    /**
+     * https://github.com/couchbase/couchbase-lite-android/issues/247
+     */
+    public void testPushReplicationRecoverableIOException() throws Exception {
+        int statusCode = -1;  // code to tell it to throw an IOException
+        String statusMsg = null;
+        boolean expectReplicatorError = false;
+        runPushReplicationWithTransientError(statusCode, statusMsg, expectReplicatorError);
+    }
+
+    /**
+     * https://github.com/couchbase/couchbase-lite-android/issues/247
+     */
+    public void testPushReplicationNonRecoverableError() throws Exception {
+        int statusCode = 404;
+        String statusMsg = "NOT FOUND";
+        boolean expectReplicatorError = true;
+        runPushReplicationWithTransientError(statusCode, statusMsg, expectReplicatorError);
+    }
+
+    /**
+     * https://github.com/couchbase/couchbase-lite-android/issues/247
+     */
+    public void runPushReplicationWithTransientError(int statusCode, String statusMsg, boolean expectReplicatorError) throws Exception {
+
+        Map<String,Object> properties1 = new HashMap<String,Object>();
+        properties1.put("doc1", "testPushReplicationTransientError");
+        createDocWithProperties(properties1);
+
+        final CustomizableMockHttpClient mockHttpClient = new CustomizableMockHttpClient();
+        mockHttpClient.addResponderFakeLocalDocumentUpdate404();
+
+        CustomizableMockHttpClient.Responder sentinal = CustomizableMockHttpClient.fakeBulkDocsResponder();
+        Queue<CustomizableMockHttpClient.Responder> responders = new LinkedList<CustomizableMockHttpClient.Responder>();
+        responders.add(CustomizableMockHttpClient.transientErrorResponder(statusCode, statusMsg));
+        ResponderChain responderChain = new ResponderChain(responders, sentinal);
+        mockHttpClient.setResponder("_bulk_docs", responderChain);
+
+        // create a replication observer to wait until replication finishes
+        CountDownLatch replicationDoneSignal = new CountDownLatch(1);
+        ReplicationFinishedObserver replicationFinishedObserver = new ReplicationFinishedObserver(replicationDoneSignal);
+
+        // create replication and add observer
+        manager.setDefaultHttpClientFactory(mockFactoryFactory(mockHttpClient));
+        Replication pusher = database.createPushReplication2(getReplicationURL());
+        pusher.addChangeListener(replicationFinishedObserver);
+
+        // save the checkpoint id for later usage
+        String checkpointId = pusher.remoteCheckpointDocID();
+
+        // kick off the replication
+        pusher.start();
+
+        // wait for it to finish
+        boolean success = replicationDoneSignal.await(60, TimeUnit.SECONDS);
+        assertTrue(success);
+        Log.d(TAG, "replicationDoneSignal finished");
+
+        if (expectReplicatorError == true) {
+            assertNotNull(pusher.getLastError());
+        } else {
+            assertNull(pusher.getLastError());
+        }
+
+        // workaround for the fact that the replicationDoneSignal.wait() call will unblock before all
+        // the statements in Replication.stopped() have even had a chance to execute.
+        // (specifically the ones that come after the call to notifyChangeListeners())
+        Log.d(TAG, "sleeping");
+        Thread.sleep(1 * 1000);
+        Log.d(TAG, "done sleeping");
+
+        String localLastSequence = database.lastSequenceWithCheckpointId(checkpointId);
+        Log.d(TAG, "localLastSequence: %s", localLastSequence);
+
+        if (expectReplicatorError == true) {
+            assertNull(localLastSequence);
+        } else {
+            assertNotNull(localLastSequence);
+        }
+
+    }
+
+
     public void testReplicatorErrorStatus() throws Exception {
 
         // need to port auth stuff for this
@@ -2224,6 +2317,11 @@ public class ReplicationTest extends LiteTestCase {
         // need to port goOffline stuff for this
         throw new RuntimeException("Not ported");
 
+    }
+
+    public void testOnlineOfflinePusher() throws Exception {
+        // need to port goOffline stuff for this
+        throw new RuntimeException("Not ported");
     }
 
     public void testGoOffline() throws Exception {
