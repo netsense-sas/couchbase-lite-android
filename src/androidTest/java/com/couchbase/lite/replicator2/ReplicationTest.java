@@ -30,6 +30,7 @@ import com.couchbase.lite.mockserver.MockDocumentPut;
 import com.couchbase.lite.mockserver.MockHelper;
 import com.couchbase.lite.mockserver.MockRevsDiff;
 import com.couchbase.lite.replicator.CustomizableMockHttpClient;
+import com.couchbase.lite.replicator.Pusher;
 import com.couchbase.lite.replicator.ResponderChain;
 import com.couchbase.lite.support.HttpClientFactory;
 import com.couchbase.lite.util.Log;
@@ -2077,6 +2078,49 @@ public class ReplicationTest extends LiteTestCase {
 
     }
 
+    public void testBuildRelativeURLString() throws Exception {
+
+        String dbUrlString = "http://10.0.0.3:4984/todos/";
+        Replication replication = database.createPullReplication2(new URL(dbUrlString));
+        String relativeUrlString = replication.buildRelativeURLString("foo");
+
+        String expected = "http://10.0.0.3:4984/todos/foo";
+        Assert.assertEquals(expected, relativeUrlString);
+
+    }
+
+    public void testBuildRelativeURLStringWithLeadingSlash() throws Exception {
+
+        String dbUrlString = "http://10.0.0.3:4984/todos/";
+        Replication replication = database.createPullReplication2(new URL(dbUrlString));
+
+        String relativeUrlString = replication.buildRelativeURLString("/foo");
+
+        String expected = "http://10.0.0.3:4984/todos/foo";
+        Assert.assertEquals(expected, relativeUrlString);
+
+    }
+
+
+    public void testReplicatorErrorStatus() throws Exception {
+
+        // need to port auth stuff for this
+        throw new RuntimeException("Not ported");
+    }
+
+    public void testGoOfflinePusher() throws Exception {
+
+        // need to port goOffline stuff for this
+        throw new RuntimeException("Not ported");
+
+    }
+
+    public void testGoOffline() throws Exception {
+
+        // need to port goOffline stuff for this
+        throw new RuntimeException("Not ported");
+
+    }
 
     public void testGetReplicator() throws Throwable {
 
