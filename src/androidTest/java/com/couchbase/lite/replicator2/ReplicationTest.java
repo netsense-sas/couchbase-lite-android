@@ -1,6 +1,5 @@
 package com.couchbase.lite.replicator2;
 
-import com.couchbase.lite.Attachment;
 import com.couchbase.lite.Database;
 import com.couchbase.lite.Document;
 import com.couchbase.lite.DocumentChange;
@@ -34,7 +33,6 @@ import com.couchbase.lite.replicator.CustomizableMockHttpClient;
 import com.couchbase.lite.replicator.ResponderChain;
 import com.couchbase.lite.support.HttpClientFactory;
 import com.couchbase.lite.util.Log;
-import com.couchbase.lite.util.TextUtils;
 import com.squareup.okhttp.mockwebserver.MockResponse;
 import com.squareup.okhttp.mockwebserver.MockWebServer;
 import com.squareup.okhttp.mockwebserver.RecordedRequest;
@@ -2033,7 +2031,62 @@ public class ReplicationTest extends LiteTestCase {
 
     }
 
+
+    public void testRunReplicationWithError() throws Exception {
+
+        HttpClientFactory mockHttpClientFactory = new HttpClientFactory() {
+            @Override
+            public HttpClient getHttpClient() {
+                CustomizableMockHttpClient mockHttpClient = new CustomizableMockHttpClient();
+                int statusCode = 500;
+                mockHttpClient.addResponderFailAllRequests(statusCode);
+                return mockHttpClient;
+            }
+
+            @Override
+            public void addCookies(List<Cookie> cookies) {
+
+            }
+
+            @Override
+            public void deleteCookie(String name) {
+
+            }
+
+            @Override
+            public CookieStore getCookieStore() {
+                return null;
+            }
+        };
+
+        manager.setDefaultHttpClientFactory(mockHttpClientFactory);
+
+        String dbUrlString = "http://fake.test-url.com:4984/fake/";
+        URL remote = new URL(dbUrlString);
+        final boolean continuous = false;
+
+        Replication r1 = database.createPushReplication2(getReplicationURL());
+        Assert.assertFalse(r1.isContinuous());
+        runReplication2(r1);
+
+        // It should have failed with a 404:
+        Assert.assertEquals(0, r1.getCompletedChangesCount());
+        Assert.assertEquals(0, r1.getChangesCount());
+        Assert.assertNotNull(r1.getLastError());
+
+
+    }
+
+
     public void testGetReplicator() throws Throwable {
+
+        // port this last, because it will require refactoring replicator2 (or using interfaces or something)
+
+        throw new RuntimeException("Not ported");
+
+    }
+
+    public void testGetReplicatorWithAuth() throws Throwable {
 
         // port this last, because it will require refactoring replicator2 (or using interfaces or something)
 
