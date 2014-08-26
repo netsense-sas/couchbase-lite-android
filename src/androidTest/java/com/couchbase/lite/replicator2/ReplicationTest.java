@@ -1,5 +1,6 @@
 package com.couchbase.lite.replicator2;
 
+import com.couchbase.lite.Attachment;
 import com.couchbase.lite.Database;
 import com.couchbase.lite.Document;
 import com.couchbase.lite.DocumentChange;
@@ -12,8 +13,11 @@ import com.couchbase.lite.Query;
 import com.couchbase.lite.QueryEnumerator;
 import com.couchbase.lite.QueryOptions;
 import com.couchbase.lite.QueryRow;
+import com.couchbase.lite.Revision;
 import com.couchbase.lite.SavedRevision;
 import com.couchbase.lite.UnsavedRevision;
+import com.couchbase.lite.ValidationContext;
+import com.couchbase.lite.Validator;
 import com.couchbase.lite.View;
 import com.couchbase.lite.internal.RevisionInternal;
 import com.couchbase.lite.mockserver.MockBulkDocs;
@@ -30,6 +34,7 @@ import com.couchbase.lite.replicator.CustomizableMockHttpClient;
 import com.couchbase.lite.replicator.ResponderChain;
 import com.couchbase.lite.support.HttpClientFactory;
 import com.couchbase.lite.util.Log;
+import com.couchbase.lite.util.TextUtils;
 import com.squareup.okhttp.mockwebserver.MockResponse;
 import com.squareup.okhttp.mockwebserver.MockWebServer;
 import com.squareup.okhttp.mockwebserver.RecordedRequest;
@@ -1853,6 +1858,102 @@ public class ReplicationTest extends LiteTestCase {
         }
 
         assertEquals(numDocsToSend, numDocsSent);
+
+    }
+
+    public void failingTestPullerGzipped() throws Throwable {
+
+        // TODO: rewrite w/ MockWebserver
+        /*String docIdTimestamp = Long.toString(System.currentTimeMillis());
+        final String doc1Id = String.format("doc1-%s", docIdTimestamp);
+
+        String attachmentName = "attachment.png";
+        addDocWithId(doc1Id, attachmentName, true);
+
+        doPullReplication();
+
+        Log.d(TAG, "Fetching doc1 via id: " + doc1Id);
+        Document doc1 = database.getDocument(doc1Id);
+        assertNotNull(doc1);
+        assertTrue(doc1.getCurrentRevisionId().startsWith("1-"));
+        assertEquals(1, doc1.getProperties().get("foo"));
+
+        Attachment attachment = doc1.getCurrentRevision().getAttachment(attachmentName);
+        assertTrue(attachment.getLength() > 0);
+        assertTrue(attachment.getGZipped());
+        byte[] receivedBytes = TextUtils.read(attachment.getContent());
+
+        InputStream attachmentStream = getAsset(attachmentName);
+        byte[] actualBytes = TextUtils.read(attachmentStream);
+        Assert.assertEquals(actualBytes.length, receivedBytes.length);
+        Assert.assertEquals(actualBytes, receivedBytes);*/
+
+    }
+
+    /**
+     * Verify that validation blocks are called correctly for docs
+     * pulled from the sync gateway.
+     *
+     * - Add doc to (mock) sync gateway
+     * - Add validation function that will reject that doc
+     * - Do a pull replication
+     * - Assert that the doc does _not_ make it into the db
+     *
+     */
+    public void testValidationBlockCalled() throws Throwable {
+
+        final MockDocumentGet.MockDocument mockDocument = new MockDocumentGet.MockDocument("doc1", "1-3e28", 1);
+        mockDocument.setJsonMap(MockHelper.generateRandomJsonMap());
+
+        // create mockwebserver and custom dispatcher
+        MockDispatcher dispatcher = new MockDispatcher();
+        MockWebServer server = MockHelper.getMockWebServer(dispatcher);
+        dispatcher.setServerType(MockDispatcher.ServerType.SYNC_GW);
+
+
+        // checkpoint GET response w/ 404
+        MockResponse fakeCheckpointResponse = new MockResponse();
+        MockHelper.set404NotFoundJson(fakeCheckpointResponse);
+        dispatcher.enqueueResponse(MockHelper.PATH_REGEX_CHECKPOINT, fakeCheckpointResponse);
+
+        // _changes response
+        MockChangesFeed mockChangesFeed = new MockChangesFeed();
+        mockChangesFeed.add(new MockChangesFeed.MockChangedDoc(mockDocument));
+        dispatcher.enqueueResponse(MockHelper.PATH_REGEX_CHANGES, mockChangesFeed.generateMockResponse());
+
+        // doc response
+        MockDocumentGet mockDocumentGet = new MockDocumentGet(mockDocument);
+        dispatcher.enqueueResponse(mockDocument.getDocPathRegex(), mockDocumentGet.generateMockResponse());
+
+        // checkpoint PUT response
+        dispatcher.enqueueResponse(MockHelper.PATH_REGEX_CHECKPOINT, new MockCheckpointPut());
+
+        // start mock server
+        server.play();
+
+        // Add Validation block
+        database.setValidation("testValidationBlockCalled", new Validator() {
+            @Override
+            public void validate(Revision newRevision, ValidationContext context) {
+                if (newRevision.getDocument().getId().equals(mockDocument.getDocId())) {
+                    context.reject("Reject");
+                }
+            }
+        });
+
+        // run pull replication
+
+        Replication pullReplication = database.createPullReplication2(server.getUrl("/db"));
+        runReplication2(pullReplication);
+
+        waitForPutCheckpointRequestWithSeq(dispatcher, mockDocument.getDocSeq());
+
+        // assert doc is not in local db
+        Document doc = database.getDocument(mockDocument.getDocId());
+        assertNull(doc.getCurrentRevision());  // doc should have been rejected by validation, and therefore not present
+
+        server.shutdown();
+
 
     }
 
