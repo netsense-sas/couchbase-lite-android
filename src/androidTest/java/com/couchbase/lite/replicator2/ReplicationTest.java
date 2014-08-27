@@ -30,6 +30,7 @@ import com.couchbase.lite.mockserver.MockDocumentGet;
 import com.couchbase.lite.mockserver.MockDocumentPut;
 import com.couchbase.lite.mockserver.MockHelper;
 import com.couchbase.lite.mockserver.MockRevsDiff;
+import com.couchbase.lite.mockserver.WrappedSmartMockResponse;
 import com.couchbase.lite.replicator.CustomizableMockHttpClient;
 import com.couchbase.lite.replicator.Pusher;
 import com.couchbase.lite.replicator.ResponderChain;
@@ -2501,8 +2502,76 @@ public class ReplicationTest extends LiteTestCase {
      * https://github.com/couchbase/couchbase-lite-java-core/issues/253
      */
     public void testReplicationOnlineExtraneousChangeTrackers() throws Exception {
-        // required goOffline support
-        throw new RuntimeException("Not ported");
+
+        // create mockwebserver and custom dispatcher
+        MockDispatcher dispatcher = new MockDispatcher();
+        MockWebServer server = MockHelper.getMockWebServer(dispatcher);
+        dispatcher.setServerType(MockDispatcher.ServerType.COUCHDB);
+
+        // add sticky checkpoint GET response w/ 404
+        MockCheckpointGet fakeCheckpointResponse = new MockCheckpointGet();
+        fakeCheckpointResponse.set404(true);
+        fakeCheckpointResponse.setSticky(true);
+        dispatcher.enqueueResponse(MockHelper.PATH_REGEX_CHECKPOINT, fakeCheckpointResponse);
+
+
+        // add sticky _changes response to feed=longpoll that just blocks for 60 seconds to emulate
+        // server that doesn't have any new changes
+        MockChangesFeedNoResponse mockChangesFeedNoResponse = new MockChangesFeedNoResponse();
+        mockChangesFeedNoResponse.setDelayMs(60 * 1000);
+        mockChangesFeedNoResponse.setSticky(true);
+        dispatcher.enqueueResponse(MockHelper.PATH_REGEX_CHANGES_LONGPOLL, mockChangesFeedNoResponse);
+
+        // add _changes response to feed=normal that returns empty _changes feed immediately
+        MockChangesFeed mockChangesFeed = new MockChangesFeed();
+        MockResponse mockResponse = mockChangesFeed.generateMockResponse();
+        for (int i=0; i<500; i++) {  // TODO: use setSticky instead of workaround to add a ton of mock responses
+            dispatcher.enqueueResponse(MockHelper.PATH_REGEX_CHANGES_NORMAL, new WrappedSmartMockResponse(mockResponse));
+        }
+
+        // start mock server
+        server.play();
+
+        //create url for replication
+        URL baseUrl = server.getUrl("/db");
+
+        //create replication
+        final Replication pullReplication = database.createPullReplication2(baseUrl);
+        pullReplication.setContinuous(true);
+        pullReplication.start();
+
+        // wait until we get a request to the _changes feed
+        RecordedRequest changesReq = dispatcher.takeRequestBlocking(MockHelper.PATH_REGEX_CHANGES_LONGPOLL);
+        assertNotNull(changesReq);
+
+        putReplicationOffline(pullReplication);
+
+        // at this point since we called takeRequest earlier, our recorded _changes request queue should be empty
+        assertNull(dispatcher.takeRequest(MockHelper.PATH_REGEX_CHANGES_LONGPOLL));
+
+        // put replication online 10 times
+        for (int i = 0; i < 10; i++) {
+            pullReplication.goOnline();
+        }
+
+        // sleep for a while to give things a chance to start
+        Thread.sleep(5 * 1000);
+
+        // how many _changes feed requests has the replicator made since going online?
+        int numChangesRequests = 0;
+        while ((changesReq = dispatcher.takeRequest(MockHelper.PATH_REGEX_CHANGES_LONGPOLL)) != null) {
+            Log.d(TAG, "changesReq: %s", changesReq);
+            numChangesRequests += 1;
+        }
+
+        // assert that there was only one _changes feed request
+        assertEquals(1, numChangesRequests);
+
+        // shutdown
+        stopReplication2(pullReplication);
+        server.shutdown();
+
+
     }
 
     public void testGoOfflinePusher() throws Exception {
