@@ -2187,31 +2187,7 @@ public class ReplicationTest extends LiteTestCase {
 
     }
 
-    /*
 
-    Assert that the bulk docs json in request contains given doc.
-
-    Example bulk docs json.
-
-     {
-       "docs":[
-         {
-           "_id":"b7f5664c-7f84-4ddf-9abc-de4e3f376ae4",
-           ..
-         }
-       ]
-     }
-     */
-    private void assertBulkDocJsonContainsDoc(RecordedRequest request, Document doc) throws Exception {
-
-        Map <String, Object> bulkDocsJson = Manager.getObjectMapper().readValue(request.getUtf8Body(), Map.class);
-        List docs = (List) bulkDocsJson.get("docs");
-        Map<String, Object> firstDoc = (Map<String, Object>) docs.get(0);
-        assertEquals(doc.getId(), firstDoc.get("_id"));
-
-
-
-    }
 
     /**
      * Test for the goOffline() method.
