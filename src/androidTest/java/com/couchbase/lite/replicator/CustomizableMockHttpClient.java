@@ -469,7 +469,7 @@ public class CustomizableMockHttpClient implements org.apache.http.client.HttpCl
         public HttpResponse execute(HttpUriRequest httpUriRequest) throws IOException;
     }
 
-    static interface ResponseListener {
+    public static interface ResponseListener {
         public void responseSent(HttpUriRequest httpUriRequest, HttpResponse response);
     }
 
