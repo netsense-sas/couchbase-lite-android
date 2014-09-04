@@ -21,6 +21,7 @@ import com.couchbase.lite.Validator;
 import com.couchbase.lite.View;
 import com.couchbase.lite.auth.Authenticator;
 import com.couchbase.lite.auth.AuthenticatorFactory;
+import com.couchbase.lite.auth.FacebookAuthorizer;
 import com.couchbase.lite.internal.RevisionInternal;
 import com.couchbase.lite.mockserver.MockBulkDocs;
 import com.couchbase.lite.mockserver.MockChangesFeed;
@@ -2882,8 +2883,20 @@ public class ReplicationTest extends LiteTestCase {
 
     public void testGetReplicatorWithAuth() throws Throwable {
 
-        // port this last, because it will require refactoring replicator2 (or using interfaces or something)
-        throw new RuntimeException("Not ported");
+        Map<String,Object> authProperties = getReplicationAuthParsedJson();
+
+        Map<String,Object> targetProperties = new HashMap<String,Object>();
+        targetProperties.put("url", getReplicationURL().toExternalForm());
+        targetProperties.put("auth", authProperties);
+
+        Map<String,Object> properties = new HashMap<String,Object>();
+        properties.put("source", DEFAULT_TEST_DB);
+        properties.put("target", targetProperties);
+
+        Replication replicator = manager.getReplicator(properties);
+        assertNotNull(replicator);
+        assertNotNull(replicator.getAuthenticator());
+        assertTrue(replicator.getAuthenticator() instanceof FacebookAuthorizer);
 
     }
 
