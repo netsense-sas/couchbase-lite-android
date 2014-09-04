@@ -20,7 +20,7 @@ package com.couchbase.lite.performance;
 import com.couchbase.lite.CouchbaseLiteException;
 import com.couchbase.lite.Document;
 import com.couchbase.lite.LiteTestCase;
-import com.couchbase.lite.replicator.Replication;
+import com.couchbase.lite.replicator2.Replication;
 import com.couchbase.lite.support.Base64;
 import com.couchbase.lite.util.Log;
 
@@ -62,7 +62,7 @@ public class Test16_ParallelPushReplication extends LiteTestCase {
     /*
      * Test expects 4 remote datbases named db0, db1, db2, db3
      */
-    public void testPushReplicationPerformance() throws CouchbaseLiteException {
+    public void testPushReplicationPerformance() throws Exception {
 
         long startMillis = System.currentTimeMillis();
 
@@ -71,28 +71,28 @@ public class Test16_ParallelPushReplication extends LiteTestCase {
         URL remote2 = getReplicationSubURL("2");
         URL remote3 = getReplicationSubURL("3");
 
-        final Replication repl0 = database.createPushReplication(remote0);
+        final Replication repl0 = database.createPushReplication2(remote0);
         repl0.setContinuous(false);
         if (!isSyncGateway(remote0)) {
             repl0.setCreateTarget(true);
             Assert.assertTrue(repl0.shouldCreateTarget());
         }
 
-        final Replication repl1 = database.createPushReplication(remote1);
+        final Replication repl1 = database.createPushReplication2(remote1);
         repl1.setContinuous(false);
         if (!isSyncGateway(remote1)) {
             repl1.setCreateTarget(true);
             Assert.assertTrue(repl1.shouldCreateTarget());
         }
 
-        final Replication repl2 = database.createPushReplication(remote2);
+        final Replication repl2 = database.createPushReplication2(remote2);
         repl2.setContinuous(false);
         if (!isSyncGateway(remote2)) {
             repl2.setCreateTarget(true);
             Assert.assertTrue(repl2.shouldCreateTarget());
         }
 
-        final Replication repl3 = database.createPushReplication(remote3);
+        final Replication repl3 = database.createPushReplication2(remote3);
         repl3.setContinuous(false);
         if (!isSyncGateway(remote3)) {
             repl3.setCreateTarget(true);
@@ -101,19 +101,31 @@ public class Test16_ParallelPushReplication extends LiteTestCase {
 
         Thread t0 = new Thread() {
             public void run() {
-                runReplication(repl0);
+                try {
+                    runReplication2(repl0);
+                } catch (Exception e) {
+                    e.printStackTrace();
+                }
             }
         };
 
         Thread t1 = new Thread() {
             public void run() {
-                runReplication(repl1);
+                try {
+                    runReplication2(repl1);
+                } catch (Exception e) {
+                    e.printStackTrace();
+                }
             }
         };
 
         Thread t2 = new Thread() {
             public void run() {
-                runReplication(repl2);
+                try {
+                    runReplication2(repl2);
+                } catch (Exception e) {
+                    e.printStackTrace();
+                }
             }
         };
 
@@ -121,7 +133,7 @@ public class Test16_ParallelPushReplication extends LiteTestCase {
         t1.start();
         t2.start();
 
-        runReplication(repl3);
+        runReplication2(repl3);
 
         Log.d(TAG, "testPusher() finished");
 

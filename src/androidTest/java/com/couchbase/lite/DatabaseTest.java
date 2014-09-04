@@ -3,7 +3,8 @@ package com.couchbase.lite;
 import com.couchbase.lite.internal.RevisionInternal;
 import com.couchbase.lite.mockserver.MockDispatcher;
 import com.couchbase.lite.mockserver.MockHelper;
-import com.couchbase.lite.replicator.Replication;
+import com.couchbase.lite.replicator2.Replication;
+import com.couchbase.lite.replicator2.ReplicationState;
 import com.couchbase.lite.support.FileDirUtils;
 import com.squareup.okhttp.mockwebserver.MockWebServer;
 
@@ -155,7 +156,7 @@ public class DatabaseTest extends LiteTestCase {
         server.setDispatcher(dispatcher);
         server.play();
 
-        Replication replication = database.createPullReplication(server.getUrl("/db"));
+        Replication replication = database.createPullReplication2(server.getUrl("/db"));
 
         assertEquals(0, database.getAllReplications().size());
         assertEquals(0, database.getActiveReplications().size());
@@ -165,9 +166,15 @@ public class DatabaseTest extends LiteTestCase {
         assertEquals(1, database.getAllReplications().size());
         assertEquals(1, database.getActiveReplications().size());
 
-        CountDownLatch replicationDoneSignal = new CountDownLatch(1);
-        ReplicationFinishedObserver replicationFinishedObserver = new ReplicationFinishedObserver(replicationDoneSignal);
-        replication.addChangeListener(replicationFinishedObserver);
+        final CountDownLatch replicationDoneSignal = new CountDownLatch(1);
+        replication.addChangeListener(new Replication.ChangeListener() {
+            @Override
+            public void changed(Replication.ChangeEvent event) {
+                if (event.getTransition() != null && event.getTransition().getDestination().equals(ReplicationState.STOPPED)) {
+                    replicationDoneSignal.countDown();
+                }
+            }
+        });
 
         boolean success = replicationDoneSignal.await(60, TimeUnit.SECONDS);
         assertTrue(success);

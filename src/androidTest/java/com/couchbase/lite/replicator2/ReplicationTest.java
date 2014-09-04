@@ -36,7 +36,6 @@ import com.couchbase.lite.mockserver.MockRevsDiff;
 import com.couchbase.lite.mockserver.MockSessionGet;
 import com.couchbase.lite.mockserver.WrappedSmartMockResponse;
 import com.couchbase.lite.replicator.CustomizableMockHttpClient;
-import com.couchbase.lite.replicator.Pusher;
 import com.couchbase.lite.replicator.ResponderChain;
 import com.couchbase.lite.support.HttpClientFactory;
 import com.couchbase.lite.util.Log;
@@ -82,7 +81,7 @@ import java.util.concurrent.atomic.AtomicInteger;
  */
 public class ReplicationTest extends LiteTestCase {
 
-    public static final String TAG = com.couchbase.lite.replicator.ReplicationTest.TAG;
+    public static final String TAG = com.couchbase.lite.replicator2.ReplicationTest.TAG;
 
     /**
      * Start continuous replication with a closed db.
@@ -1983,7 +1982,7 @@ public class ReplicationTest extends LiteTestCase {
         final CountDownLatch receivedSomeDocs = new CountDownLatch(1);
 
         // run pull replication
-        final com.couchbase.lite.replicator.Replication repl = (com.couchbase.lite.replicator.Replication) database.createPullReplication(server.getUrl("/db"));
+        final Replication repl =  database.createPullReplication(server.getUrl("/db"));
         repl.setContinuous(true);
         repl.start();
 
@@ -2007,7 +2006,7 @@ public class ReplicationTest extends LiteTestCase {
         boolean success = receivedSomeDocs.await(60, TimeUnit.SECONDS);
         assertTrue(success);
 
-        stopReplication(repl);
+        stopReplication2(repl);
 
         repl.start();
 
@@ -2023,7 +2022,7 @@ public class ReplicationTest extends LiteTestCase {
         assertEquals(numMockRemoteDocs, rows.size());
 
         // cleanup / shutdown
-        stopReplication(repl);
+        stopReplication2(repl);
         server.shutdown();
 
 
@@ -2824,6 +2823,11 @@ public class ReplicationTest extends LiteTestCase {
 
         // port this last, because it will require refactoring replicator2 (or using interfaces or something)
         throw new RuntimeException("Not ported");
+
+        // TODO: remove all tests that depend on replication1 package
+        // TODO: change manager.getReplicator() and db.getReplicator() to use repliction2 package
+        // TODO: find remaining dependencies on replication1 package and change to replication2
+
 
     }
 
