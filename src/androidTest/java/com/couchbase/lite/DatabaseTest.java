@@ -3,8 +3,8 @@ package com.couchbase.lite;
 import com.couchbase.lite.internal.RevisionInternal;
 import com.couchbase.lite.mockserver.MockDispatcher;
 import com.couchbase.lite.mockserver.MockHelper;
-import com.couchbase.lite.replicator2.Replication;
-import com.couchbase.lite.replicator2.ReplicationState;
+import com.couchbase.lite.replicator.Replication;
+import com.couchbase.lite.replicator.ReplicationState;
 import com.couchbase.lite.support.FileDirUtils;
 import com.squareup.okhttp.mockwebserver.MockWebServer;
 

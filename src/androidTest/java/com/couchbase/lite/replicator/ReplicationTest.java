@@ -1,4 +1,4 @@
-package com.couchbase.lite.replicator2;
+package com.couchbase.lite.replicator;
 
 import com.couchbase.lite.CouchbaseLiteException;
 import com.couchbase.lite.Database;
@@ -36,8 +36,6 @@ import com.couchbase.lite.mockserver.MockHelper;
 import com.couchbase.lite.mockserver.MockRevsDiff;
 import com.couchbase.lite.mockserver.MockSessionGet;
 import com.couchbase.lite.mockserver.WrappedSmartMockResponse;
-import com.couchbase.lite.replicator.CustomizableMockHttpClient;
-import com.couchbase.lite.replicator.ResponderChain;
 import com.couchbase.lite.support.HttpClientFactory;
 import com.couchbase.lite.util.Log;
 import com.squareup.okhttp.mockwebserver.MockResponse;
@@ -539,9 +537,9 @@ public class ReplicationTest extends LiteTestCase {
         pullReplication.setContinuous(true);
 
         final CountDownLatch replicationDoneSignal = new CountDownLatch(1);
-        pullReplication.addChangeListener(new com.couchbase.lite.replicator2.Replication.ChangeListener() {
+        pullReplication.addChangeListener(new Replication.ChangeListener() {
             @Override
-            public void changed(com.couchbase.lite.replicator2.Replication.ChangeEvent event) {
+            public void changed(Replication.ChangeEvent event) {
                 if (event.getTransition() != null) {
                     if (event.getTransition().getDestination() == ReplicationState.STOPPING) {
                         Log.d(TAG, "Replicator is stopping");

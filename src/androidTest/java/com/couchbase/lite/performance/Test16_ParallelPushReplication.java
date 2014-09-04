@@ -20,7 +20,7 @@ package com.couchbase.lite.performance;
 import com.couchbase.lite.CouchbaseLiteException;
 import com.couchbase.lite.Document;
 import com.couchbase.lite.LiteTestCase;
-import com.couchbase.lite.replicator2.Replication;
+import com.couchbase.lite.replicator.Replication;
 import com.couchbase.lite.support.Base64;
 import com.couchbase.lite.util.Log;
 

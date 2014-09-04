@@ -6,7 +6,8 @@ import com.couchbase.lite.mockserver.MockDocumentGet;
 import com.couchbase.lite.mockserver.MockHelper;
 import com.couchbase.lite.mockserver.MockPreloadedPullTarget;
 import com.couchbase.lite.replicator.CustomizableMockHttpClient;
-import com.couchbase.lite.replicator2.ReplicationState;
+import com.couchbase.lite.replicator.Replication;
+import com.couchbase.lite.replicator.ReplicationState;
 import com.couchbase.lite.support.HttpClientFactory;
 import com.couchbase.test.lite.*;
 
@@ -398,12 +399,12 @@ public abstract class LiteTestCase extends LiteTestCaseBase {
     }
 
 
-    public void stopReplication2(com.couchbase.lite.replicator2.Replication replication) throws Exception {
+    public void stopReplication2(Replication replication) throws Exception {
 
         final CountDownLatch replicationDoneSignal = new CountDownLatch(1);
-        replication.addChangeListener(new com.couchbase.lite.replicator2.Replication.ChangeListener() {
+        replication.addChangeListener(new Replication.ChangeListener() {
             @Override
-            public void changed(com.couchbase.lite.replicator2.Replication.ChangeEvent event) {
+            public void changed(Replication.ChangeEvent event) {
                 if (event.getTransition() != null) {
                     if (event.getTransition().getDestination() == ReplicationState.STOPPING) {
                         Log.d(TAG, "Replicator is stopping");
@@ -508,12 +509,12 @@ public abstract class LiteTestCase extends LiteTestCaseBase {
 
 
 
-    public void runReplication2(com.couchbase.lite.replicator2.Replication replication) throws Exception {
+    public void runReplication2(Replication replication) throws Exception {
 
         final CountDownLatch replicationDoneSignal = new CountDownLatch(1);
-        replication.addChangeListener(new com.couchbase.lite.replicator2.Replication.ChangeListener() {
+        replication.addChangeListener(new Replication.ChangeListener() {
             @Override
-            public void changed(com.couchbase.lite.replicator2.Replication.ChangeEvent event) {
+            public void changed(Replication.ChangeEvent event) {
                 if (event.getTransition() != null) {
                     if (event.getTransition().getDestination() == ReplicationState.STOPPING) {
                         Log.d(TAG, "Replicator is stopping");
