@@ -81,7 +81,7 @@ import java.util.concurrent.atomic.AtomicInteger;
  */
 public class ReplicationTest extends LiteTestCase {
 
-    public static final String TAG = com.couchbase.lite.replicator2.ReplicationTest.TAG;
+    public static final String TAG = "ReplicationTest";
 
     /**
      * Start continuous replication with a closed db.
@@ -2821,12 +2821,61 @@ public class ReplicationTest extends LiteTestCase {
 
     public void testGetReplicator() throws Throwable {
 
-        // port this last, because it will require refactoring replicator2 (or using interfaces or something)
-        throw new RuntimeException("Not ported");
+        Map<String,Object> properties = new HashMap<String,Object>();
+        properties.put("source", DEFAULT_TEST_DB);
+        properties.put("target", getReplicationURL().toExternalForm());
 
-        // TODO: remove all tests that depend on replication1 package
-        // TODO: change manager.getReplicator() and db.getReplicator() to use repliction2 package
-        // TODO: find remaining dependencies on replication1 package and change to replication2
+        Map<String,Object> headers = new HashMap<String,Object>();
+        String coolieVal = "SyncGatewaySession=c38687c2696688a";
+        headers.put("Cookie", coolieVal);
+        properties.put("headers", headers);
+
+        Replication replicator = manager.getReplicator(properties);
+        assertNotNull(replicator);
+        assertEquals(getReplicationURL().toExternalForm(), replicator.getRemoteUrl().toExternalForm());
+        assertTrue(!replicator.isPull());
+        assertFalse(replicator.isContinuous());
+        assertFalse(replicator.isRunning());
+        assertTrue(replicator.getHeaders().containsKey("Cookie"));
+        assertEquals(replicator.getHeaders().get("Cookie"), coolieVal);
+
+        // add replication observer
+        CountDownLatch replicationDoneSignal = new CountDownLatch(1);
+        ReplicationFinishedObserver replicationFinishedObserver = new ReplicationFinishedObserver(replicationDoneSignal);
+        replicator.addChangeListener(replicationFinishedObserver);
+
+        // start the replicator
+        Log.d(TAG, "Starting replicator " + replicator);
+        replicator.start();
+
+        final CountDownLatch replicationStarted = new CountDownLatch(1);
+        replicator.addChangeListener(new Replication.ChangeListener() {
+            @Override
+            public void changed(Replication.ChangeEvent event) {
+                if (event.getTransition() != null && event.getTransition().getDestination().equals(ReplicationState.RUNNING)) {
+                    replicationStarted.countDown();
+                }
+            }
+        });
+
+        boolean success = replicationStarted.await(30, TimeUnit.SECONDS);
+        assertTrue(success);
+
+        // now lets lookup existing replicator and stop it
+        Log.d(TAG, "Looking up replicator");
+        properties.put("cancel", true);
+        Replication activeReplicator = manager.getReplicator(properties);
+        Log.d(TAG, "Found replicator " + activeReplicator + " and calling stop()");
+
+        activeReplicator.stop();
+        Log.d(TAG, "called stop(), waiting for it to finish");
+
+        // wait for replication to finish
+        boolean didNotTimeOut = replicationDoneSignal.await(180, TimeUnit.SECONDS);
+        Log.d(TAG, "replicationDoneSignal.await done, didNotTimeOut: " + didNotTimeOut);
+
+        assertTrue(didNotTimeOut);
+        assertFalse(activeReplicator.isRunning());
 
 
     }
