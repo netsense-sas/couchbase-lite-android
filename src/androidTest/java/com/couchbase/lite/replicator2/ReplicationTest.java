@@ -19,6 +19,8 @@ import com.couchbase.lite.UnsavedRevision;
 import com.couchbase.lite.ValidationContext;
 import com.couchbase.lite.Validator;
 import com.couchbase.lite.View;
+import com.couchbase.lite.auth.Authenticator;
+import com.couchbase.lite.auth.AuthenticatorFactory;
 import com.couchbase.lite.internal.RevisionInternal;
 import com.couchbase.lite.mockserver.MockBulkDocs;
 import com.couchbase.lite.mockserver.MockChangesFeed;
@@ -28,8 +30,10 @@ import com.couchbase.lite.mockserver.MockCheckpointPut;
 import com.couchbase.lite.mockserver.MockDispatcher;
 import com.couchbase.lite.mockserver.MockDocumentGet;
 import com.couchbase.lite.mockserver.MockDocumentPut;
+import com.couchbase.lite.mockserver.MockFacebookAuthPost;
 import com.couchbase.lite.mockserver.MockHelper;
 import com.couchbase.lite.mockserver.MockRevsDiff;
+import com.couchbase.lite.mockserver.MockSessionGet;
 import com.couchbase.lite.mockserver.WrappedSmartMockResponse;
 import com.couchbase.lite.replicator.CustomizableMockHttpClient;
 import com.couchbase.lite.replicator.Pusher;
@@ -2769,11 +2773,52 @@ public class ReplicationTest extends LiteTestCase {
 
     }
 
+    /**
+     * Verify that when a replication runs into an auth error, it stops
+     * and the lastError() method returns that error.
+     */
     public void testReplicatorErrorStatus() throws Exception {
 
-        // need to port auth stuff for this
-        throw new RuntimeException("Not ported");
+        // create mockwebserver and custom dispatcher
+        MockDispatcher dispatcher = new MockDispatcher();
+        MockWebServer server = MockHelper.getMockWebServer(dispatcher);
+        dispatcher.setServerType(MockDispatcher.ServerType.SYNC_GW);
+
+        // fake _session response
+        MockSessionGet mockSessionGet = new MockSessionGet();
+        dispatcher.enqueueResponse(MockHelper.PATH_REGEX_SESSION, mockSessionGet.generateMockResponse());
+
+        // fake _facebook response
+        MockFacebookAuthPost mockFacebookAuthPost = new MockFacebookAuthPost();
+        dispatcher.enqueueResponse(MockHelper.PATH_REGEX_FACEBOOK_AUTH, mockFacebookAuthPost.generateMockResponse());
+
+        // start mock server
+        server.play();
+
+        // register bogus fb token
+        Authenticator facebookAuthenticator = AuthenticatorFactory.createFacebookAuthenticator("fake_access_token");
+
+        // run pull replication
+        Replication pullReplication = database.createPullReplication2(server.getUrl("/db"));
+        pullReplication.setAuthenticator(facebookAuthenticator);
+        pullReplication.setContinuous(false);
+        runReplication2(pullReplication);
+
+        // run replicator and make sure it has an error
+        assertNotNull(pullReplication.getLastError());
+        assertTrue(pullReplication.getLastError() instanceof HttpResponseException);
+        assertEquals(401 /* unauthorized */, ((HttpResponseException)pullReplication.getLastError()).getStatusCode());
+
+        // assert that the replicator sent the requests we expected it to send
+        RecordedRequest sessionReqeust = dispatcher.takeRequest(MockHelper.PATH_REGEX_SESSION);
+        assertNotNull(sessionReqeust);
+        RecordedRequest facebookRequest = dispatcher.takeRequest(MockHelper.PATH_REGEX_FACEBOOK_AUTH);
+        assertNotNull(facebookRequest);
+        dispatcher.verifyAllRecordedRequestsTaken();
+
+
     }
+
 
     public void testGetReplicator() throws Throwable {
 
