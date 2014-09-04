@@ -95,7 +95,7 @@ public class ReplicationTest extends LiteTestCase {
 
         Database db = this.manager.getDatabase("closed");
         final CountDownLatch countDownLatch = new CountDownLatch(1);
-        final Replication replication = db.createPullReplication2(new URL("http://fake.com/foo"));
+        final Replication replication = db.createPullReplication(new URL("http://fake.com/foo"));
         replication.setContinuous(true);
         replication.addChangeListener(new Replication.ChangeListener() {
             @Override
@@ -125,7 +125,7 @@ public class ReplicationTest extends LiteTestCase {
 
         final CountDownLatch countDownLatch = new CountDownLatch(1);
         final List<ReplicationStateTransition> transitions = new ArrayList<ReplicationStateTransition>();
-        final Replication replication = database.createPullReplication2(new URL("http://fake.com/foo"));
+        final Replication replication = database.createPullReplication(new URL("http://fake.com/foo"));
         replication.setContinuous(true);
         replication.addChangeListener(new Replication.ChangeListener() {
             @Override
@@ -318,7 +318,7 @@ public class ReplicationTest extends LiteTestCase {
         server.play();
 
         // run pull replication
-        Replication pullReplication = database.createPullReplication2(server.getUrl("/db"));
+        Replication pullReplication = database.createPullReplication(server.getUrl("/db"));
         String checkpointId = pullReplication.remoteCheckpointDocID();
         runReplication2(pullReplication);
         Log.d(TAG, "test done waiting for pullReplication to finish");
@@ -458,7 +458,7 @@ public class ReplicationTest extends LiteTestCase {
         dispatcher.enqueueResponse(MockHelper.PATH_REGEX_CHECKPOINT, mockCheckpointPut);
 
         // run pull replication
-        Replication pullReplication = database.createPullReplication2(server.getUrl("/db"));
+        Replication pullReplication = database.createPullReplication(server.getUrl("/db"));
         runReplication2(pullReplication);
 
         // assert that we now have both docs in local db
@@ -535,7 +535,7 @@ public class ReplicationTest extends LiteTestCase {
         final CountDownLatch receivedAllDocs = new CountDownLatch(1);
 
         // run pull replication
-        Replication pullReplication = database.createPullReplication2(server.getUrl("/db"));
+        Replication pullReplication = database.createPullReplication(server.getUrl("/db"));
         pullReplication.setContinuous(true);
 
         final CountDownLatch replicationDoneSignal = new CountDownLatch(1);
@@ -684,7 +684,7 @@ public class ReplicationTest extends LiteTestCase {
         dispatcher.enqueueResponse(mockDocument1.getDocPathRegex(), mockDocumentGet.generateMockResponse());
 
         // create and start pull replication
-        Replication pullReplication = database.createPullReplication2(server.getUrl("/db"));
+        Replication pullReplication = database.createPullReplication(server.getUrl("/db"));
         pullReplication.setContinuous(true);
         pullReplication.start();
 
@@ -828,7 +828,7 @@ public class ReplicationTest extends LiteTestCase {
         dispatcher.enqueueResponse(doc3PathRegex, mockDoc3Put.generateMockResponse());
 
         // run replication
-        Replication replication = database.createPushReplication2(server.getUrl("/db"));
+        Replication replication = database.createPushReplication(server.getUrl("/db"));
         replication.setContinuous(false);
         if (serverType != MockDispatcher.ServerType.SYNC_GW) {
             replication.setCreateTarget(true);
@@ -928,7 +928,7 @@ public class ReplicationTest extends LiteTestCase {
         // replication to do initial sync up - has to be continuous replication so the checkpoint id
         // matches the next continuous replication we're gonna do later.
 
-        Replication firstPusher = database.createPushReplication2(server.getUrl("/db"));
+        Replication firstPusher = database.createPushReplication(server.getUrl("/db"));
         firstPusher.setContinuous(true);
         final String checkpointId = firstPusher.remoteCheckpointDocID();  // save the checkpoint id for later usage
 
@@ -952,7 +952,7 @@ public class ReplicationTest extends LiteTestCase {
         assertEquals("1", lastSequence);
 
         // start a second continuous replication
-        Replication secondPusher = database.createPushReplication2(server.getUrl("/db"));
+        Replication secondPusher = database.createPushReplication(server.getUrl("/db"));
         secondPusher.setContinuous(true);
         final String secondPusherCheckpointId = secondPusher.remoteCheckpointDocID();
         assertEquals(checkpointId, secondPusherCheckpointId);
@@ -1011,7 +1011,7 @@ public class ReplicationTest extends LiteTestCase {
 
         // create new replication
         int retryDelaySeconds = 1;
-        Replication pull = database.createPullReplication2(server.getUrl("/db"));
+        Replication pull = database.createPullReplication(server.getUrl("/db"));
         pull.setContinuous(true);
 
         // add done listener to replication
@@ -1087,7 +1087,7 @@ public class ReplicationTest extends LiteTestCase {
         assertEquals(rev2b.getId(), doc.getCurrentRevisionId());
 
         // sync with remote DB -- should push both leaf revisions
-        Replication push = database.createPushReplication2(getReplicationURL());
+        Replication push = database.createPushReplication(getReplicationURL());
 
         runReplication2(push);
         assertNull(push.getLastError());
@@ -1221,7 +1221,7 @@ public class ReplicationTest extends LiteTestCase {
         server.play();
 
         // run pull replication
-        Replication pullReplication = database.createPullReplication2(server.getUrl("/db"));
+        Replication pullReplication = database.createPullReplication(server.getUrl("/db"));
         runReplication2(pullReplication);
         assertNull(pullReplication.getLastError());
 
@@ -1286,7 +1286,7 @@ public class ReplicationTest extends LiteTestCase {
 
         // create replication and add observer
         manager.setDefaultHttpClientFactory(mockFactoryFactory(mockHttpClient));
-        Replication pusher = database.createPushReplication2(getReplicationURL());
+        Replication pusher = database.createPushReplication(getReplicationURL());
         pusher.addChangeListener(replicationFinishedObserver);
 
         // save the checkpoint id for later usage
@@ -1361,7 +1361,7 @@ public class ReplicationTest extends LiteTestCase {
 
         // create replication and add observer
         manager.setDefaultHttpClientFactory(mockFactoryFactory(mockHttpClient));
-        Replication pusher = database.createPushReplication2(getReplicationURL());
+        Replication pusher = database.createPushReplication(getReplicationURL());
 
         runReplication2(pusher);
 
@@ -1404,7 +1404,7 @@ public class ReplicationTest extends LiteTestCase {
             }
         });
 
-        pusher = database.createPushReplication2(getReplicationURL());
+        pusher = database.createPushReplication(getReplicationURL());
         runReplication2(pusher);
 
 
@@ -1472,7 +1472,7 @@ public class ReplicationTest extends LiteTestCase {
 
         // create replication and add observer
         manager.setDefaultHttpClientFactory(mockFactoryFactory(mockHttpClient));
-        Replication pusher = database.createPushReplication2(getReplicationURL());
+        Replication pusher = database.createPushReplication(getReplicationURL());
 
         runReplication2(pusher);
 
@@ -1494,7 +1494,7 @@ public class ReplicationTest extends LiteTestCase {
 
 
     public void testServerIsSyncGatewayVersion() {
-        Replication pusher = database.createPushReplication2(getReplicationURL());
+        Replication pusher = database.createPushReplication(getReplicationURL());
         assertFalse(pusher.serverIsSyncGatewayVersion("0.01"));
         pusher.setServerType("Couchbase Sync Gateway/0.93");
         assertTrue(pusher.serverIsSyncGatewayVersion("0.92"));
@@ -1506,10 +1506,10 @@ public class ReplicationTest extends LiteTestCase {
      */
     public void testDifferentCheckpointsFilteredReplication() throws Exception {
 
-        Replication pullerNoFilter = database.createPullReplication2(getReplicationURL());
+        Replication pullerNoFilter = database.createPullReplication(getReplicationURL());
         String noFilterCheckpointDocId = pullerNoFilter.remoteCheckpointDocID();
 
-        Replication pullerWithFilter1 = database.createPullReplication2(getReplicationURL());
+        Replication pullerWithFilter1 = database.createPullReplication(getReplicationURL());
         pullerWithFilter1.setFilter("foo/bar");
         Map<String, Object> filterParams= new HashMap<String, Object>();
         filterParams.put("a", "aval");
@@ -1520,7 +1520,7 @@ public class ReplicationTest extends LiteTestCase {
         String withFilterCheckpointDocId = pullerWithFilter1.remoteCheckpointDocID();
         assertFalse(withFilterCheckpointDocId.equals(noFilterCheckpointDocId));
 
-        Replication pullerWithFilter2 = database.createPullReplication2(getReplicationURL());
+        Replication pullerWithFilter2 = database.createPullReplication(getReplicationURL());
         pullerWithFilter2.setFilter("foo/bar");
         filterParams= new HashMap<String, Object>();
         filterParams.put("b", "bval");
@@ -1537,7 +1537,7 @@ public class ReplicationTest extends LiteTestCase {
     public void testSetReplicationCookie() throws Exception {
 
         URL replicationUrl = getReplicationURL();
-        Replication puller = database.createPullReplication2(replicationUrl);
+        Replication puller = database.createPullReplication(replicationUrl);
         String cookieName = "foo";
         String cookieVal = "bar";
         boolean isSecure = false;
@@ -1648,7 +1648,7 @@ public class ReplicationTest extends LiteTestCase {
         URL baseUrl = server.getUrl("/db");
 
         //create replication
-        Replication pullReplication = database.createPullReplication2(baseUrl);
+        Replication pullReplication = database.createPullReplication(baseUrl);
         pullReplication.setContinuous(false);
 
         //add change listener to notify when the replication is finished
@@ -1741,7 +1741,7 @@ public class ReplicationTest extends LiteTestCase {
         URL remote = getReplicationURL();
 
         manager.setDefaultHttpClientFactory(mockHttpClientFactory);
-        Replication pusher = database.createPushReplication2(remote);
+        Replication pusher = database.createPushReplication(remote);
         pusher.setContinuous(true);
 
         final CountDownLatch replicationCaughtUpSignal = new CountDownLatch(1);
@@ -1832,7 +1832,7 @@ public class ReplicationTest extends LiteTestCase {
         URL remote = getReplicationURL();
 
         manager.setDefaultHttpClientFactory(mockHttpClientFactory);
-        Replication pusher = database.createPushReplication2(remote);
+        Replication pusher = database.createPushReplication(remote);
         runReplication2(pusher);
         assertNull(pusher.getLastError());
 
@@ -1938,7 +1938,7 @@ public class ReplicationTest extends LiteTestCase {
 
         // run pull replication
 
-        Replication pullReplication = database.createPullReplication2(server.getUrl("/db"));
+        Replication pullReplication = database.createPullReplication(server.getUrl("/db"));
         runReplication2(pullReplication);
 
         waitForPutCheckpointRequestWithSeq(dispatcher, mockDocument.getDocSeq());
@@ -2058,7 +2058,7 @@ public class ReplicationTest extends LiteTestCase {
 
         manager.setDefaultHttpClientFactory(mockHttpClientFactory);
 
-        Replication r1 = database.createPushReplication2(getReplicationURL());
+        Replication r1 = database.createPushReplication(getReplicationURL());
         Assert.assertFalse(r1.isContinuous());
         runReplication2(r1);
 
@@ -2073,7 +2073,7 @@ public class ReplicationTest extends LiteTestCase {
     public void testBuildRelativeURLString() throws Exception {
 
         String dbUrlString = "http://10.0.0.3:4984/todos/";
-        Replication replication = database.createPullReplication2(new URL(dbUrlString));
+        Replication replication = database.createPullReplication(new URL(dbUrlString));
         String relativeUrlString = replication.buildRelativeURLString("foo");
 
         String expected = "http://10.0.0.3:4984/todos/foo";
@@ -2084,7 +2084,7 @@ public class ReplicationTest extends LiteTestCase {
     public void testBuildRelativeURLStringWithLeadingSlash() throws Exception {
 
         String dbUrlString = "http://10.0.0.3:4984/todos/";
-        Replication replication = database.createPullReplication2(new URL(dbUrlString));
+        Replication replication = database.createPullReplication(new URL(dbUrlString));
 
         String relativeUrlString = replication.buildRelativeURLString("/foo");
 
@@ -2096,7 +2096,7 @@ public class ReplicationTest extends LiteTestCase {
     public void testChannels() throws Exception {
 
         URL remote = getReplicationURL();
-        Replication replicator = database.createPullReplication2(remote);
+        Replication replicator = database.createPullReplication(remote);
         List<String> channels = new ArrayList<String>();
         channels.add("chan1");
         channels.add("chan2");
@@ -2111,7 +2111,7 @@ public class ReplicationTest extends LiteTestCase {
 
         Database  db = startDatabase();
         URL fakeRemoteURL = new URL("http://couchbase.com/no_such_db");
-        Replication r1 = db.createPullReplication2(fakeRemoteURL);
+        Replication r1 = db.createPullReplication(fakeRemoteURL);
 
         assertTrue(r1.getChannels().isEmpty());
         r1.setFilter("foo/bar");
@@ -2178,7 +2178,7 @@ public class ReplicationTest extends LiteTestCase {
         URL remote = getReplicationURL();
 
         manager.setDefaultHttpClientFactory(mockHttpClientFactory);
-        Replication puller = database.createPullReplication2(remote);
+        Replication puller = database.createPullReplication(remote);
 
         Map<String, Object> headers = new HashMap<String, Object>();
         headers.put("foo", "bar");
@@ -2256,7 +2256,7 @@ public class ReplicationTest extends LiteTestCase {
 
         // create replication and add observer
         manager.setDefaultHttpClientFactory(mockFactoryFactory(mockHttpClient));
-        Replication pusher = database.createPushReplication2(getReplicationURL());
+        Replication pusher = database.createPushReplication(getReplicationURL());
         pusher.addChangeListener(replicationFinishedObserver);
 
         // save the checkpoint id for later usage
@@ -2307,7 +2307,7 @@ public class ReplicationTest extends LiteTestCase {
         URL remote = getReplicationURL();
 
         manager.setDefaultHttpClientFactory(mockFactoryFactory(mockHttpClient));
-        Replication pusher = database.createPushReplication2(remote);
+        Replication pusher = database.createPushReplication(remote);
 
         runReplication2(pusher);
 
@@ -2328,7 +2328,7 @@ public class ReplicationTest extends LiteTestCase {
         URL remote = getReplicationURL();
 
         manager.setDefaultHttpClientFactory(mockFactoryFactory(mockHttpClient));
-        Replication pusher = database.createPushReplication2(remote);
+        Replication pusher = database.createPushReplication(remote);
         pusher.setContinuous(true);
 
         // add replication observer
@@ -2396,7 +2396,7 @@ public class ReplicationTest extends LiteTestCase {
         dispatcher.enqueueResponse(mockDoc2.getDocPathRegex(), mockDocumentGet.generateMockResponse());
 
         // create replication
-        Replication pullReplication = database.createPullReplication2(server.getUrl("/db"));
+        Replication pullReplication = database.createPullReplication(server.getUrl("/db"));
         pullReplication.setContinuous(true);
 
         // add a change listener
@@ -2539,7 +2539,7 @@ public class ReplicationTest extends LiteTestCase {
         URL baseUrl = server.getUrl("/db");
 
         //create replication
-        final Replication pullReplication = database.createPullReplication2(baseUrl);
+        final Replication pullReplication = database.createPullReplication(baseUrl);
         pullReplication.setContinuous(true);
         pullReplication.start();
 
@@ -2619,7 +2619,7 @@ public class ReplicationTest extends LiteTestCase {
         dispatcher.enqueueResponse(MockHelper.PATH_REGEX_BULK_DOCS, mockBulkDocs);
 
         // create and start push replication
-        Replication replicator = database.createPushReplication2(server.getUrl("/db"));
+        Replication replicator = database.createPushReplication(server.getUrl("/db"));
         replicator.setContinuous(true);
         CountDownLatch replicationIdleSignal = new CountDownLatch(1);
         ReplicationIdleObserver replicationIdleObserver = new ReplicationIdleObserver(replicationIdleSignal);
@@ -2696,7 +2696,7 @@ public class ReplicationTest extends LiteTestCase {
         ReplicationFinishedObserver replicationFinishedObserver = new ReplicationFinishedObserver(replicationDoneSignal);
 
         // create a push replication
-        Replication pusher = database.createPushReplication2(remote);
+        Replication pusher = database.createPushReplication(remote);
         Log.d(Database.TAG, "created pusher: " + pusher);
         pusher.addChangeListener(replicationFinishedObserver);
         pusher.setContinuous(true);
@@ -2798,7 +2798,7 @@ public class ReplicationTest extends LiteTestCase {
         Authenticator facebookAuthenticator = AuthenticatorFactory.createFacebookAuthenticator("fake_access_token");
 
         // run pull replication
-        Replication pullReplication = database.createPullReplication2(server.getUrl("/db"));
+        Replication pullReplication = database.createPullReplication(server.getUrl("/db"));
         pullReplication.setAuthenticator(facebookAuthenticator);
         pullReplication.setContinuous(false);
         runReplication2(pullReplication);

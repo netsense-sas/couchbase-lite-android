@@ -65,7 +65,7 @@ public class Test6_PushReplication extends LiteTestCase {
 
         URL remote = getReplicationURL();
 
-        final Replication repl = database.createPushReplication2(remote);
+        final Replication repl = database.createPushReplication(remote);
         repl.setContinuous(false);
         if (!isSyncGateway(remote)) {
             repl.setCreateTarget(true);

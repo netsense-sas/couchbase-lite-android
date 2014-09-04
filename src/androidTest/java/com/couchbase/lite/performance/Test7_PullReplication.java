@@ -87,7 +87,7 @@ public class Test7_PullReplication extends LiteTestCase {
     private void doPullReplication() throws Exception {
         URL remote = getReplicationURL();
 
-        final Replication repl = (Replication) database.createPullReplication2(remote);
+        final Replication repl = (Replication) database.createPullReplication(remote);
         repl.setContinuous(false);
 
         Log.d(TAG, "Doing pull replication with: " + repl);

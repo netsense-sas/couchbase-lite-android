@@ -156,7 +156,7 @@ public class DatabaseTest extends LiteTestCase {
         server.setDispatcher(dispatcher);
         server.play();
 
-        Replication replication = database.createPullReplication2(server.getUrl("/db"));
+        Replication replication = database.createPullReplication(server.getUrl("/db"));
 
         assertEquals(0, database.getAllReplications().size());
         assertEquals(0, database.getActiveReplications().size());
