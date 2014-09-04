@@ -321,6 +321,8 @@ public class ReplicationTest extends LiteTestCase {
         Replication pullReplication = database.createPullReplication2(server.getUrl("/db"));
         String checkpointId = pullReplication.remoteCheckpointDocID();
         runReplication2(pullReplication);
+        Log.d(TAG, "test done waiting for pullReplication to finish");
+
 
         // assert that we now have both docs in local db
         assertNotNull(database);
@@ -364,8 +366,10 @@ public class ReplicationTest extends LiteTestCase {
         assertTrue(doc2Request.getPath().matches(mockDoc2.getDocPathRegex()));
 
         // wait until the mock webserver receives a PUT checkpoint request with doc #2's sequence
+        Log.d(TAG, "waiting for PUT checkpoint %s", mockDoc2.getDocSeq());
         List<RecordedRequest> checkpointRequests = waitForPutCheckpointRequestWithSequence(dispatcher, mockDoc2.getDocSeq());
         validateCheckpointRequestsRevisions(checkpointRequests);
+        Log.d(TAG, "got PUT checkpoint %s", mockDoc2.getDocSeq());
 
         // give it some time to actually save checkpoint to db
         workAroundSaveCheckpointRaceCondition();
@@ -799,10 +803,11 @@ public class ReplicationTest extends LiteTestCase {
         Document doc4 = createDocumentForPushReplication(doc4Id, null, null);
         doc4.delete();
 
-        // checkpoint GET response w/ 404
-        MockResponse fakeCheckpointResponse = new MockResponse();
-        MockHelper.set404NotFoundJson(fakeCheckpointResponse);
-        dispatcher.enqueueResponse(MockHelper.PATH_REGEX_CHECKPOINT, fakeCheckpointResponse);
+        // checkpoint GET response w/ 404 + respond to all PUT Checkpoint requests
+        MockCheckpointPut mockCheckpointPut = new MockCheckpointPut();
+        mockCheckpointPut.setSticky(true);
+        mockCheckpointPut.setDelayMs(500);
+        dispatcher.enqueueResponse(MockHelper.PATH_REGEX_CHECKPOINT, mockCheckpointPut);
 
         // _revs_diff response -- everything missing
         MockRevsDiff mockRevsDiff = new MockRevsDiff();
@@ -854,16 +859,10 @@ public class ReplicationTest extends LiteTestCase {
         // wait until the mock webserver receives a PUT checkpoint request
 
         int expectedLastSequence = 5;
+        Log.d(TAG, "waiting for put checkpoint with lastSequence: %d", expectedLastSequence);
         List<RecordedRequest> checkpointRequests = waitForPutCheckpointRequestWithSequence(dispatcher, expectedLastSequence);
-
-        // TODO: since this test's mock doesn't return valid responses to PUT checkpoint requests
-        // TODO: the validation below does not work, since the second PUT checkpoint request
-        // TODO: cannot pass in a _rev parameter.  Brings up the issue of verifying correct replicator
-        // TODO: behavior in the scenario where the PUT checkpoint response is delayed by 30 seconds +.
-        // TODO: uncomment -- validateCheckpointRequestsRevisions(checkpointRequests);
-
-        // TODO: this is commented out because I'm seeing sporadic cases where there are 2 checkpoint requests
-        // TODO: uncomment -- assertEquals(1, checkpointRequests.size());
+        Log.d(TAG, "done waiting for put checkpoint with lastSequence: %d", expectedLastSequence);
+        validateCheckpointRequestsRevisions(checkpointRequests);
 
         workAroundSaveCheckpointRaceCondition();
 
@@ -2822,9 +2821,22 @@ public class ReplicationTest extends LiteTestCase {
 
     public void testGetReplicator() throws Throwable {
 
+        // create mockwebserver and custom dispatcher
+        MockDispatcher dispatcher = new MockDispatcher();
+        MockWebServer server = MockHelper.getMockWebServer(dispatcher);
+        dispatcher.setServerType(MockDispatcher.ServerType.SYNC_GW);
+
+        // checkpoint PUT or GET response (sticky)
+        MockCheckpointPut mockCheckpointPut = new MockCheckpointPut();
+        mockCheckpointPut.setSticky(true);
+        mockCheckpointPut.setDelayMs(500);
+        dispatcher.enqueueResponse(MockHelper.PATH_REGEX_CHECKPOINT, mockCheckpointPut);
+
+        server.play();
+
         Map<String,Object> properties = new HashMap<String,Object>();
         properties.put("source", DEFAULT_TEST_DB);
-        properties.put("target", getReplicationURL().toExternalForm());
+        properties.put("target", server.getUrl("/db").toExternalForm());
 
         Map<String,Object> headers = new HashMap<String,Object>();
         String coolieVal = "SyncGatewaySession=c38687c2696688a";
@@ -2833,7 +2845,7 @@ public class ReplicationTest extends LiteTestCase {
 
         Replication replicator = manager.getReplicator(properties);
         assertNotNull(replicator);
-        assertEquals(getReplicationURL().toExternalForm(), replicator.getRemoteUrl().toExternalForm());
+        assertEquals(server.getUrl("/db").toExternalForm(), replicator.getRemoteUrl().toExternalForm());
         assertTrue(!replicator.isPull());
         assertFalse(replicator.isContinuous());
         assertFalse(replicator.isRunning());
@@ -2877,6 +2889,8 @@ public class ReplicationTest extends LiteTestCase {
 
         assertTrue(didNotTimeOut);
         assertFalse(activeReplicator.isRunning());
+
+        server.shutdown();
 
 
     }
