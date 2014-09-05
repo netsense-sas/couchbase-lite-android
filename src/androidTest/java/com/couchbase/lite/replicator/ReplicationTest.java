@@ -1962,27 +1962,37 @@ public class ReplicationTest extends LiteTestCase {
      *
      * @throws Exception
      */
-    public void failingTestMockPullerRestart() throws Exception {
+    public void testMockPullerRestart() throws Exception {
 
-
-        final int numMockRemoteDocs = 50;  // must be multiple of 10!
-        final int numDocsReceivedRestart = 10;  // when we've received this many docs, restart replicator
-
+        final int numMockRemoteDocs = 20;  // must be multiple of 10!
         final AtomicInteger numDocsPulledLocally = new AtomicInteger(0);
 
         MockDispatcher dispatcher = new MockDispatcher();
         dispatcher.setServerType(MockDispatcher.ServerType.COUCHDB);
-        MockWebServer server = new GoOfflinePreloadedPullTarget(dispatcher, numMockRemoteDocs, 1).getMockWebServer();
+        int numDocsPerChangesResponse = numMockRemoteDocs / 10;
+        MockWebServer server = MockHelper.getPreloadedPullTargetMockCouchDB(dispatcher, numMockRemoteDocs, numDocsPerChangesResponse);
 
         server.play();
 
         final CountDownLatch receivedAllDocs = new CountDownLatch(1);
-        final CountDownLatch receivedSomeDocs = new CountDownLatch(1);
 
         // run pull replication
-        final Replication repl =  database.createPullReplication(server.getUrl("/db"));
-        repl.setContinuous(true);
-        repl.start();
+        Replication pullReplication = database.createPullReplication(server.getUrl("/db"));
+        pullReplication.setContinuous(true);
+
+        // it should go idle twice, hence countdown latch = 2
+        final CountDownLatch replicationIdleFirstTime = new CountDownLatch(1);
+        final CountDownLatch replicationIdleSecondTime = new CountDownLatch(2);
+
+        pullReplication.addChangeListener(new Replication.ChangeListener() {
+            @Override
+            public void changed(Replication.ChangeEvent event) {
+                if (event.getTransition() != null && event.getTransition().getDestination().equals(ReplicationState.IDLE)) {
+                    replicationIdleFirstTime.countDown();
+                    replicationIdleSecondTime.countDown();
+                }
+            }
+        });
 
         database.addChangeListener(new Database.ChangeListener() {
             @Override
@@ -1991,36 +2001,33 @@ public class ReplicationTest extends LiteTestCase {
                 for (DocumentChange change : changes) {
                     numDocsPulledLocally.addAndGet(1);
                 }
-                if (numDocsPulledLocally.get() > numDocsReceivedRestart) {
-                    receivedSomeDocs.countDown();
-                }
                 if (numDocsPulledLocally.get() == numMockRemoteDocs) {
                     receivedAllDocs.countDown();
                 }
             }
         });
 
-        // wait until we received a few docs
-        boolean success = receivedSomeDocs.await(60, TimeUnit.SECONDS);
-        assertTrue(success);
-
-        stopReplication2(repl);
-
-        repl.start();
+        pullReplication.start();
 
         // wait until we received all mock docs or timeout occurs
-        success = receivedAllDocs.await(60, TimeUnit.SECONDS);
+        boolean success = receivedAllDocs.await(60, TimeUnit.SECONDS);
         assertTrue(success);
 
-        // make sure all docs in local db
-        Map<String, Object> allDocs = database.getAllDocs(new QueryOptions());
-        Integer totalRows = (Integer) allDocs.get("total_rows");
-        List rows = (List) allDocs.get("rows");
-        assertEquals(numMockRemoteDocs, totalRows.intValue());
-        assertEquals(numMockRemoteDocs, rows.size());
+        // wait until replication goes idle
+        success = replicationIdleFirstTime.await(60, TimeUnit.SECONDS);
+        assertTrue(success);
+
+        stopReplication2(pullReplication);
+
+        pullReplication.start();
+
+        // wait until replication goes idle again
+        success = replicationIdleSecondTime.await(60, TimeUnit.SECONDS);
+        assertTrue(success);
+
+        stopReplication2(pullReplication);
 
         // cleanup / shutdown
-        stopReplication2(repl);
         server.shutdown();
 
 

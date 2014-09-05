@@ -402,7 +402,8 @@ public abstract class LiteTestCase extends LiteTestCaseBase {
     public void stopReplication2(Replication replication) throws Exception {
 
         final CountDownLatch replicationDoneSignal = new CountDownLatch(1);
-        replication.addChangeListener(new Replication.ChangeListener() {
+        replication.addChangeListener(
+                new Replication.ChangeListener() {
             @Override
             public void changed(Replication.ChangeEvent event) {
                 if (event.getTransition() != null) {
@@ -411,10 +412,11 @@ public abstract class LiteTestCase extends LiteTestCaseBase {
                     }
                     if (event.getTransition().getDestination() == ReplicationState.STOPPED) {
 
-                        assertEquals(event.getChangeCount(), event.getCompletedChangeCount());
-
                         Log.d(TAG, "Replicator is stopped");
                         replicationDoneSignal.countDown();
+
+                        assertEquals(event.getChangeCount(), event.getCompletedChangeCount());
+
                     }
                 }
             }
