@@ -1987,7 +1987,7 @@ public class ReplicationTest extends LiteTestCase {
         pullReplication.addChangeListener(new Replication.ChangeListener() {
             @Override
             public void changed(Replication.ChangeEvent event) {
-                if (event.getTransition() != null && event.getTransition().getDestination().equals(ReplicationState.IDLE)) {
+                if (event.getTransition() != null && event.getTransition().getDestination() == ReplicationState.IDLE) {
                     replicationIdleFirstTime.countDown();
                     replicationIdleSecondTime.countDown();
                 }
@@ -2017,9 +2017,7 @@ public class ReplicationTest extends LiteTestCase {
         success = replicationIdleFirstTime.await(60, TimeUnit.SECONDS);
         assertTrue(success);
 
-        stopReplication2(pullReplication);
-
-        pullReplication.start();
+        pullReplication.restart();
 
         // wait until replication goes idle again
         success = replicationIdleSecondTime.await(60, TimeUnit.SECONDS);
@@ -2870,7 +2868,7 @@ public class ReplicationTest extends LiteTestCase {
         replicator.addChangeListener(new Replication.ChangeListener() {
             @Override
             public void changed(Replication.ChangeEvent event) {
-                if (event.getTransition() != null && event.getTransition().getDestination().equals(ReplicationState.RUNNING)) {
+                if (event.getTransition() != null && event.getTransition().getDestination() == ReplicationState.RUNNING) {
                     replicationStarted.countDown();
                 }
             }

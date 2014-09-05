@@ -170,7 +170,7 @@ public class DatabaseTest extends LiteTestCase {
         replication.addChangeListener(new Replication.ChangeListener() {
             @Override
             public void changed(Replication.ChangeEvent event) {
-                if (event.getTransition() != null && event.getTransition().getDestination().equals(ReplicationState.STOPPED)) {
+                if (event.getTransition() != null && event.getTransition().getDestination() == ReplicationState.STOPPED) {
                     replicationDoneSignal.countDown();
                 }
             }
