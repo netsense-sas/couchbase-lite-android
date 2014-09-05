@@ -156,12 +156,25 @@ public class DatabaseTest extends LiteTestCase {
         server.setDispatcher(dispatcher);
         server.play();
 
-        Replication replication = database.createPullReplication(server.getUrl("/db"));
+        final Replication replication = database.createPullReplication(server.getUrl("/db"));
 
         assertEquals(0, database.getAllReplications().size());
         assertEquals(0, database.getActiveReplications().size());
 
+        final CountDownLatch replicationRunning = new CountDownLatch(1);
+        replication.addChangeListener(new Replication.ChangeListener() {
+            @Override
+            public void changed(Replication.ChangeEvent event) {
+                if (event.getTransition() != null && event.getTransition().getDestination() == ReplicationState.RUNNING) {
+                    replicationRunning.countDown();
+                }
+            }
+        });
+
         replication.start();
+
+        boolean success = replicationRunning.await(30, TimeUnit.SECONDS);
+        assertTrue(success);
 
         assertEquals(1, database.getAllReplications().size());
         assertEquals(1, database.getActiveReplications().size());
@@ -176,7 +189,7 @@ public class DatabaseTest extends LiteTestCase {
             }
         });
 
-        boolean success = replicationDoneSignal.await(60, TimeUnit.SECONDS);
+        success = replicationDoneSignal.await(60, TimeUnit.SECONDS);
         assertTrue(success);
 
         assertEquals(1, database.getAllReplications().size());
