@@ -35,6 +35,7 @@ import com.couchbase.lite.mockserver.MockFacebookAuthPost;
 import com.couchbase.lite.mockserver.MockHelper;
 import com.couchbase.lite.mockserver.MockRevsDiff;
 import com.couchbase.lite.mockserver.MockSessionGet;
+import com.couchbase.lite.mockserver.SmartMockResponse;
 import com.couchbase.lite.mockserver.WrappedSmartMockResponse;
 import com.couchbase.lite.support.HttpClientFactory;
 import com.couchbase.lite.util.Log;
@@ -2648,12 +2649,55 @@ public class ReplicationTest extends LiteTestCase {
 
         putReplicationOffline(replicator);
 
+        // during this time, any requests to server will fail, because we
+        // are simulating being offline.  (whether or not the pusher should
+        // even be _sending_ requests during this time is a different story)
+        dispatcher.clearQueuedResponse(MockHelper.PATH_REGEX_REVS_DIFF);
+        dispatcher.clearRecordedRequests(MockHelper.PATH_REGEX_REVS_DIFF);
+        dispatcher.enqueueResponse(MockHelper.PATH_REGEX_REVS_DIFF, new SmartMockResponse() {
+            @Override
+            public MockResponse generateMockResponse(RecordedRequest request) {
+                return new MockResponse().setResponseCode(500);
+            }
+
+            @Override
+            public boolean isSticky() {
+                return true;
+            }
+
+            @Override
+            public long delayMs() {
+                return 0;
+            }
+        });
+
         // add a 2nd doc to local db
         properties = new HashMap<String, Object>();
         properties.put("testGoOfflinePusher", "2");
         Document doc2 = createDocumentWithProperties(database, properties);
 
+        // currently, even when offline, adding a new doc will cause it to try pushing the
+        // doc.  (this is questionable behavior, need to check against iOS).  It will retry
+        // twice, so lets wait for two requests to /_revs_diff
+        RecordedRequest revsDiffRequest = dispatcher.takeRequestBlocking(MockHelper.PATH_REGEX_REVS_DIFF);
+        dispatcher.takeRecordedResponseBlocking(revsDiffRequest);
+        revsDiffRequest = dispatcher.takeRequestBlocking(MockHelper.PATH_REGEX_REVS_DIFF);
+        dispatcher.takeRecordedResponseBlocking(revsDiffRequest);
+
+        Log.d(TAG, "got 2 requests to PATH_REGEX_REVS_DIFF");
+
+
+        // Log.d(TAG, "sleeping 5s");
+        // Thread.sleep(5 * 1000);
+        // Log.d(TAG, "done sleeping 5s");
+
+        Log.d(TAG, "going online");
         putReplicationOnline(replicator);
+
+        // we are going online again, so the mockwebserver should accept _revs_diff responses again
+        dispatcher.clearQueuedResponse(MockHelper.PATH_REGEX_REVS_DIFF);
+        dispatcher.clearRecordedRequests(MockHelper.PATH_REGEX_REVS_DIFF);
+        dispatcher.enqueueResponse(MockHelper.PATH_REGEX_REVS_DIFF, mockRevsDiff);
 
         // wait until mock server gets the 2nd checkpoint PUT request
         foundCheckpointPut = false;
