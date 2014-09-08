@@ -2497,6 +2497,7 @@ public class ReplicationTest extends LiteTestCase {
         replication.addChangeListener(changeListener);
 
         replication.goOnline();
+
         boolean succeeded = wentOnline.await(30, TimeUnit.SECONDS);
         assertTrue(succeeded);
 
@@ -2684,14 +2685,6 @@ public class ReplicationTest extends LiteTestCase {
         revsDiffRequest = dispatcher.takeRequestBlocking(MockHelper.PATH_REGEX_REVS_DIFF);
         dispatcher.takeRecordedResponseBlocking(revsDiffRequest);
 
-        Log.d(TAG, "got 2 requests to PATH_REGEX_REVS_DIFF");
-
-
-        // Log.d(TAG, "sleeping 5s");
-        // Thread.sleep(5 * 1000);
-        // Log.d(TAG, "done sleeping 5s");
-
-        Log.d(TAG, "going online");
         putReplicationOnline(replicator);
 
         // we are going online again, so the mockwebserver should accept _revs_diff responses again
