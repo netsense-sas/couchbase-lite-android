@@ -34,11 +34,12 @@ public class RemoteRequestTest extends LiteTestCase {
         MockWebServer server = MockHelper.getMockWebServer(dispatcher);
         dispatcher.setServerType(MockDispatcher.ServerType.SYNC_GW);
 
-        // checkpoint GET response w/ 404 + respond to all PUT Checkpoint requests
-        MockCheckpointPut mockCheckpointPut = new MockCheckpointPut();
-        mockCheckpointPut.setSticky(true);
-        dispatcher.enqueueResponse(MockHelper.PATH_REGEX_CHECKPOINT, mockCheckpointPut);
-
+        // respond with 503 error to all requests
+        MockResponse mockResponse = new MockResponse().setResponseCode(503);
+        WrappedSmartMockResponse mockBulkDocs = new WrappedSmartMockResponse(mockResponse, false);
+        mockBulkDocs.setSticky(true);
+        dispatcher.enqueueResponse(MockHelper.PATH_REGEX_CHECKPOINT, mockBulkDocs);
+        
         server.play();
 
         String urlString = String.format("%s/%s", server.getUrl("/db"), "_local");
@@ -49,8 +50,7 @@ public class RemoteRequestTest extends LiteTestCase {
 
         Map<String, Object> requestHeaders = new HashMap<String, Object>();
 
-        int numRequests = 50;
-        final CountDownLatch countDownLatch = new CountDownLatch(numRequests);
+        final CountDownLatch countDownLatch = new CountDownLatch(1);
         RemoteRequestCompletionBlock completionBlock = new RemoteRequestCompletionBlock() {
             @Override
             public void onCompletion(Object result, Throwable e) {
@@ -59,19 +59,17 @@ public class RemoteRequestTest extends LiteTestCase {
         };
 
         ScheduledExecutorService executorService = new ScheduledThreadPoolExecutor(1);
-        for (int i=0; i<numRequests; i++) {
-            RemoteRequest request = new RemoteRequest(
-                    executorService,
-                    factory,
-                    "GET",
-                    url,
-                    requestBody,
-                    database,
-                    requestHeaders,
-                    completionBlock
-            );
-            Future future = executorService.submit(request);
-        }
+        RemoteRequest request = new RemoteRequest(
+                executorService,
+                factory,
+                "GET",
+                url,
+                requestBody,
+                database,
+                requestHeaders,
+                completionBlock
+        );
+        Future future = executorService.submit(request);
 
         boolean success = countDownLatch.await(30, TimeUnit.SECONDS);
         assertTrue(success);
