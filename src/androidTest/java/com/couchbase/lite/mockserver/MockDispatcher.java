@@ -37,8 +37,8 @@ public class MockDispatcher extends Dispatcher {
 
     public MockDispatcher() {
         super();
-        queueMap = new HashMap<String, BlockingQueue<SmartMockResponse>>();
-        recordedRequestQueueMap = new HashMap<String, BlockingQueue<RecordedRequest>>();
+        queueMap = new ConcurrentHashMap<String, BlockingQueue<SmartMockResponse>>();
+        recordedRequestQueueMap = new ConcurrentHashMap<String, BlockingQueue<RecordedRequest>>();
         recordedReponseMap = new ConcurrentHashMap<RecordedRequest, MockResponse>();
         headers = new HashMap<String, String>();
     }
