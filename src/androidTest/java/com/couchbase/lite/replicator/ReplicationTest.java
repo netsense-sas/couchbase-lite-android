@@ -38,6 +38,7 @@ import com.couchbase.lite.mockserver.MockSessionGet;
 import com.couchbase.lite.mockserver.SmartMockResponse;
 import com.couchbase.lite.mockserver.WrappedSmartMockResponse;
 import com.couchbase.lite.support.HttpClientFactory;
+import com.couchbase.lite.support.RemoteRequest;
 import com.couchbase.lite.util.Log;
 import com.squareup.okhttp.mockwebserver.MockResponse;
 import com.squareup.okhttp.mockwebserver.MockWebServer;
@@ -82,6 +83,9 @@ import java.util.concurrent.atomic.AtomicInteger;
 public class ReplicationTest extends LiteTestCase {
 
     public static final String TAG = "ReplicationTest";
+
+
+
 
     /**
      * Start continuous replication with a closed db.
@@ -754,6 +758,67 @@ public class ReplicationTest extends LiteTestCase {
 
         // clean up
         allDocsLiveQuery.stop();
+
+    }
+
+
+    /**
+     * Make sure that if a continuous push gets an error
+     * pushing a doc, it will keep retrying it rather than giving up right away.
+     *
+     * @throws Exception
+     */
+    public void testPushRetry() throws Exception {
+
+        // create mockwebserver and custom dispatcher
+        MockDispatcher dispatcher = new MockDispatcher();
+        MockWebServer server = MockHelper.getMockWebServer(dispatcher);
+        dispatcher.setServerType(MockDispatcher.ServerType.SYNC_GW);
+        server.play();
+
+        // checkpoint GET response w/ 404 + respond to all PUT Checkpoint requests
+        MockCheckpointPut mockCheckpointPut = new MockCheckpointPut();
+        mockCheckpointPut.setSticky(true);
+        mockCheckpointPut.setDelayMs(500);
+        dispatcher.enqueueResponse(MockHelper.PATH_REGEX_CHECKPOINT, mockCheckpointPut);
+
+        // _revs_diff response -- everything missing
+        MockRevsDiff mockRevsDiff = new MockRevsDiff();
+        dispatcher.enqueueResponse(MockHelper.PATH_REGEX_REVS_DIFF, mockRevsDiff);
+
+        // _bulk_docs response -- 503 errors
+        MockResponse mockResponse = new MockResponse().setResponseCode(503);
+        SmartMockResponse mockBulkDocs = new WrappedSmartMockResponse(mockResponse, true);
+        dispatcher.enqueueResponse(MockHelper.PATH_REGEX_BULK_DOCS, mockBulkDocs);
+
+        // create replication
+        Replication replication = database.createPushReplication(server.getUrl("/db"));
+        replication.setContinuous(true);
+        CountDownLatch replicationIdle = new CountDownLatch(1);
+        ReplicationIdleObserver idleObserver = new ReplicationIdleObserver(replicationIdle);
+        replication.addChangeListener(idleObserver);
+        replication.start();
+
+        // wait until idle
+        boolean success = replicationIdle.await(30, TimeUnit.SECONDS);
+        assertTrue(success);
+
+        // create a doc in local db
+        Document doc1 = createDocumentForPushReplication("doc1", null, null);
+
+        // we should expect to at least see MAX_RETRIES attempts at doing POST to _bulk_docs
+        for (int i=0; i< RemoteRequest.MAX_RETRIES; i++) {
+            RecordedRequest request = dispatcher.takeRequestBlocking(MockHelper.PATH_REGEX_BULK_DOCS);
+            dispatcher.takeRecordedResponseBlocking(request);
+        }
+
+        // but it shouldn't give up there, it should keep retrying, so we should expect to
+        // see at least one more request (probably lots more, but let's just wait for one)
+        dispatcher.takeRequestBlocking(MockHelper.PATH_REGEX_BULK_DOCS);
+
+        stopReplication2(replication);
+        server.shutdown();
+
 
     }
 

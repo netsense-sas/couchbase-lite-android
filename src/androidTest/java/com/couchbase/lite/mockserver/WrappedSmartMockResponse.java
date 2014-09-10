@@ -7,10 +7,16 @@ public class WrappedSmartMockResponse implements SmartMockResponse {
 
     private MockResponse mockResponse;
     private long delayMs;
+    private boolean sticky;
 
 
     public WrappedSmartMockResponse(MockResponse mockResponse) {
         this.mockResponse = mockResponse;
+    }
+
+    public WrappedSmartMockResponse(MockResponse mockResponse, boolean sticky) {
+        this.mockResponse = mockResponse;
+        this.sticky = sticky;
     }
 
     @Override
@@ -20,7 +26,11 @@ public class WrappedSmartMockResponse implements SmartMockResponse {
 
     @Override
     public boolean isSticky() {
-        return false;
+        return this.sticky;
+    }
+
+    public void setSticky(boolean sticky) {
+        this.sticky = sticky;
     }
 
     @Override
