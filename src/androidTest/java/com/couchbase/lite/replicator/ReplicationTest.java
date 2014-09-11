@@ -39,6 +39,7 @@ import com.couchbase.lite.mockserver.SmartMockResponse;
 import com.couchbase.lite.mockserver.WrappedSmartMockResponse;
 import com.couchbase.lite.support.HttpClientFactory;
 import com.couchbase.lite.support.RemoteRequest;
+import com.couchbase.lite.support.RemoteRequestRetry;
 import com.couchbase.lite.util.Log;
 import com.squareup.okhttp.mockwebserver.MockResponse;
 import com.squareup.okhttp.mockwebserver.MockWebServer;
@@ -165,6 +166,72 @@ public class ReplicationTest extends LiteTestCase {
         assertEquals(ReplicationState.STOPPED, transitions.get(2).getDestination());
 
     }
+
+    /**
+     *
+     * Commented: test
+     * Make sure that a continuous pull replication will retry when
+     * getting an error pulling a document.
+     *
+     * @throws Exception
+
+    public void testPullRetry() throws Exception {
+
+        // create mockwebserver and custom dispatcher
+        MockDispatcher dispatcher = new MockDispatcher();
+        MockWebServer server = MockHelper.getMockWebServer(dispatcher);
+        dispatcher.setServerType(MockDispatcher.ServerType.COUCHDB);
+
+        // mock documents to be pulled
+        MockDocumentGet.MockDocument mockDoc1 = new MockDocumentGet.MockDocument("doc1", "1-5e38", 1);
+        mockDoc1.setJsonMap(MockHelper.generateRandomJsonMap());
+
+        // checkpoint GET response w/ 404
+        MockResponse fakeCheckpointResponse = new MockResponse();
+        MockHelper.set404NotFoundJson(fakeCheckpointResponse);
+        dispatcher.enqueueResponse(MockHelper.PATH_REGEX_CHECKPOINT, fakeCheckpointResponse);
+
+        // _changes response
+        MockChangesFeed mockChangesFeed = new MockChangesFeed();
+        mockChangesFeed.add(new MockChangesFeed.MockChangedDoc(mockDoc1));
+        MockResponse mockResponse = mockChangesFeed.generateMockResponse();
+        WrappedSmartMockResponse smartMockResponse = new WrappedSmartMockResponse(mockResponse, true);
+        dispatcher.enqueueResponse(MockHelper.PATH_REGEX_CHANGES, smartMockResponse);
+
+        // doc1 response -- 503 error (sticky)
+        MockResponse mockResponse503 = new MockResponse().setResponseCode(503);
+        WrappedSmartMockResponse response503Error = new WrappedSmartMockResponse(mockResponse503, true);
+        dispatcher.enqueueResponse(mockDoc1.getDocPathRegex(), response503Error);
+
+        // respond to all PUT Checkpoint requests
+        MockCheckpointPut mockCheckpointPut = new MockCheckpointPut();
+        mockCheckpointPut.setSticky(true);
+        dispatcher.enqueueResponse(MockHelper.PATH_REGEX_CHECKPOINT, mockCheckpointPut);
+
+        // start mock server
+        server.play();
+
+        Replication pullReplication = database.createPullReplication(server.getUrl("/db"));
+        pullReplication.setContinuous(true);
+        pullReplication.start();
+
+        // we should expect to at least see MAX_RETRIES attempts at pulling doc1
+        for (int i=0; i< RemoteRequest.MAX_RETRIES; i++) {
+            RecordedRequest request = dispatcher.takeRequestBlocking(mockDoc1.getDocPathRegex());
+            dispatcher.takeRecordedResponseBlocking(request);
+        }
+
+        // but it shouldn't give up there, it should keep retrying, so we should expect to
+        // see at least one more request (probably lots more, but let's just wait for one)
+        //RecordedRequest request = dispatcher.takeRequestBlocking(mockDoc1.getDocPathRegex());
+        //dispatcher.takeRecordedResponseBlocking(request);
+
+        stopReplication2(pullReplication);
+        server.shutdown();
+
+
+
+    } */
 
     /**
      * Pull replication test:
@@ -770,11 +837,12 @@ public class ReplicationTest extends LiteTestCase {
      */
     public void testPushRetry() throws Exception {
 
+        RemoteRequestRetry.RETRY_DELAY_MS = 5; // speed up test execution
+
         // create mockwebserver and custom dispatcher
         MockDispatcher dispatcher = new MockDispatcher();
         MockWebServer server = MockHelper.getMockWebServer(dispatcher);
         dispatcher.setServerType(MockDispatcher.ServerType.SYNC_GW);
-        server.play();
 
         // checkpoint GET response w/ 404 + respond to all PUT Checkpoint requests
         MockCheckpointPut mockCheckpointPut = new MockCheckpointPut();
@@ -784,12 +852,16 @@ public class ReplicationTest extends LiteTestCase {
 
         // _revs_diff response -- everything missing
         MockRevsDiff mockRevsDiff = new MockRevsDiff();
+        // mockRevsDiff.setSticky(true);
         dispatcher.enqueueResponse(MockHelper.PATH_REGEX_REVS_DIFF, mockRevsDiff);
 
         // _bulk_docs response -- 503 errors
         MockResponse mockResponse = new MockResponse().setResponseCode(503);
-        SmartMockResponse mockBulkDocs = new WrappedSmartMockResponse(mockResponse, true);
+        WrappedSmartMockResponse mockBulkDocs = new WrappedSmartMockResponse(mockResponse, false);
+        mockBulkDocs.setSticky(true);
         dispatcher.enqueueResponse(MockHelper.PATH_REGEX_BULK_DOCS, mockBulkDocs);
+
+        server.play();
 
         // create replication
         Replication replication = database.createPushReplication(server.getUrl("/db"));
@@ -802,19 +874,24 @@ public class ReplicationTest extends LiteTestCase {
         // wait until idle
         boolean success = replicationIdle.await(30, TimeUnit.SECONDS);
         assertTrue(success);
+        replication.removeChangeListener(idleObserver);
 
         // create a doc in local db
         Document doc1 = createDocumentForPushReplication("doc1", null, null);
 
-        // we should expect to at least see MAX_RETRIES attempts at doing POST to _bulk_docs
-        for (int i=0; i< RemoteRequest.MAX_RETRIES; i++) {
+        // we should expect to at least see numAttempts attempts at doing POST to _bulk_docs
+        int numAttempts = RemoteRequestRetry.MAX_RETRIES;
+        for (int i=0; i < numAttempts; i++) {
             RecordedRequest request = dispatcher.takeRequestBlocking(MockHelper.PATH_REGEX_BULK_DOCS);
+            assertNotNull(request);
             dispatcher.takeRecordedResponseBlocking(request);
         }
 
         // but it shouldn't give up there, it should keep retrying, so we should expect to
         // see at least one more request (probably lots more, but let's just wait for one)
-        dispatcher.takeRequestBlocking(MockHelper.PATH_REGEX_BULK_DOCS);
+        RecordedRequest request = dispatcher.takeRequestBlocking(MockHelper.PATH_REGEX_BULK_DOCS);
+        assertNotNull(request);
+        dispatcher.takeRecordedResponseBlocking(request);
 
         stopReplication2(replication);
         server.shutdown();
