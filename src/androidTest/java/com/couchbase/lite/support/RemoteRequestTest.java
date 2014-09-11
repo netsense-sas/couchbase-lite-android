@@ -7,13 +7,20 @@ import com.couchbase.lite.mockserver.MockDispatcher;
 import com.couchbase.lite.mockserver.MockHelper;
 import com.couchbase.lite.mockserver.MockRevsDiff;
 import com.couchbase.lite.mockserver.WrappedSmartMockResponse;
+import com.couchbase.lite.util.Log;
 import com.squareup.okhttp.mockwebserver.MockResponse;
 import com.squareup.okhttp.mockwebserver.MockWebServer;
+import com.squareup.okhttp.mockwebserver.RecordedRequest;
+
+import org.apache.http.HttpResponse;
+import org.apache.http.client.HttpResponseException;
 
 import java.net.URL;
 import java.util.HashMap;
 import java.util.Map;
 import java.util.concurrent.CountDownLatch;
+import java.util.concurrent.ExecutorService;
+import java.util.concurrent.Executors;
 import java.util.concurrent.Future;
 import java.util.concurrent.ScheduledExecutorService;
 import java.util.concurrent.ScheduledThreadPoolExecutor;
@@ -23,8 +30,14 @@ public class RemoteRequestTest extends LiteTestCase {
 
     /**
      * Make RemoteRequests will retry correctly.
+     *
+     * Return MAX_RETRIES - 1 503 transient errors, followed by a 404 non-transient error.
+     * It should retry for the 503 errors and return after it gets the 404.
      */
-    public void testRetry() throws Exception {
+    public void testRetryLastRequestSuccess() throws Exception {
+
+        // lower retry to speed up test
+        RemoteRequestRetry.RETRY_DELAY_MS = 5;
 
         PersistentCookieStore cookieStore = database.getPersistentCookieStore();
         CouchbaseLiteHttpClientFactory factory = new CouchbaseLiteHttpClientFactory(cookieStore);
@@ -34,12 +47,15 @@ public class RemoteRequestTest extends LiteTestCase {
         MockWebServer server = MockHelper.getMockWebServer(dispatcher);
         dispatcher.setServerType(MockDispatcher.ServerType.SYNC_GW);
 
-        // respond with 503 error to all requests
-        MockResponse mockResponse = new MockResponse().setResponseCode(503);
-        WrappedSmartMockResponse mockBulkDocs = new WrappedSmartMockResponse(mockResponse, false);
-        mockBulkDocs.setSticky(true);
-        dispatcher.enqueueResponse(MockHelper.PATH_REGEX_CHECKPOINT, mockBulkDocs);
-        
+        // respond with 503 error for the first MAX_RETRIES - 1 requests
+        int num503Responses = RemoteRequestRetry.MAX_RETRIES - 1;
+        for (int i=0; i<num503Responses; i++) {
+            dispatcher.enqueueResponse(MockHelper.PATH_REGEX_CHECKPOINT, new MockResponse().setResponseCode(503));
+        }
+        // on last request, respond with 404 error
+        MockCheckpointPut mockCheckpointPut = new MockCheckpointPut();
+        dispatcher.enqueueResponse(MockHelper.PATH_REGEX_CHECKPOINT, mockCheckpointPut);
+
         server.play();
 
         String urlString = String.format("%s/%s", server.getUrl("/db"), "_local");
@@ -50,17 +66,27 @@ public class RemoteRequestTest extends LiteTestCase {
 
         Map<String, Object> requestHeaders = new HashMap<String, Object>();
 
-        final CountDownLatch countDownLatch = new CountDownLatch(1);
+        final CountDownLatch received404Error = new CountDownLatch(1);
+
         RemoteRequestCompletionBlock completionBlock = new RemoteRequestCompletionBlock() {
             @Override
-            public void onCompletion(Object result, Throwable e) {
-                countDownLatch.countDown();
+            public void onCompletion(HttpResponse httpResponse, Object result, Throwable e) {
+                if (e instanceof HttpResponseException) {
+                    HttpResponseException htre = (HttpResponseException) e;
+                    if (htre.getStatusCode() == 404) {
+                        received404Error.countDown();
+                    }
+                }
             }
         };
 
-        ScheduledExecutorService executorService = new ScheduledThreadPoolExecutor(1);
-        RemoteRequest request = new RemoteRequest(
-                executorService,
+        ExecutorService requestExecutorService = Executors.newFixedThreadPool(5);
+        ScheduledExecutorService workExecutorService = Executors.newSingleThreadScheduledExecutor();
+
+        // ScheduledExecutorService executorService = new ScheduledThreadPoolExecutor(4);
+        RemoteRequestRetry request = new RemoteRequestRetry(
+                requestExecutorService,
+                workExecutorService,
                 factory,
                 "GET",
                 url,
@@ -69,10 +95,98 @@ public class RemoteRequestTest extends LiteTestCase {
                 requestHeaders,
                 completionBlock
         );
-        Future future = executorService.submit(request);
 
-        boolean success = countDownLatch.await(30, TimeUnit.SECONDS);
+        // wait for the future to return
+        Future future = requestExecutorService.submit(request);
+        future.get(300, TimeUnit.SECONDS);
+
+        // at this point, the completionBlock should have already been called back
+        // with a 404 error, which will decrement countdown latch.
+        boolean success = received404Error.await(1, TimeUnit.SECONDS);
         assertTrue(success);
+
+        // make sure that we saw MAX_RETRIES requests sent to server
+        for (int i=0; i<RemoteRequestRetry.MAX_RETRIES; i++) {
+            RecordedRequest recordedRequest = dispatcher.takeRequest(MockHelper.PATH_REGEX_CHECKPOINT);
+            assertNotNull(recordedRequest);
+        }
+
+    }
+
+
+    public void testRetryAllRequestsFail() throws Exception {
+
+        // lower retry to speed up test
+        RemoteRequestRetry.RETRY_DELAY_MS = 5;
+
+        PersistentCookieStore cookieStore = database.getPersistentCookieStore();
+        CouchbaseLiteHttpClientFactory factory = new CouchbaseLiteHttpClientFactory(cookieStore);
+
+        // create mockwebserver and custom dispatcher
+        MockDispatcher dispatcher = new MockDispatcher();
+        MockWebServer server = MockHelper.getMockWebServer(dispatcher);
+        dispatcher.setServerType(MockDispatcher.ServerType.SYNC_GW);
+
+        // respond with 503 error for all requests
+        int num503Responses = RemoteRequestRetry.MAX_RETRIES + 1;
+        for (int i=0; i<num503Responses; i++) {
+            dispatcher.enqueueResponse(MockHelper.PATH_REGEX_CHECKPOINT, new MockResponse().setResponseCode(503));
+        }
+
+        server.play();
+
+        String urlString = String.format("%s/%s", server.getUrl("/db"), "_local");
+        URL url = new URL(urlString);
+
+        Map<String, Object> requestBody = new HashMap<String, Object>();
+        requestBody.put("foo", "bar");
+
+        Map<String, Object> requestHeaders = new HashMap<String, Object>();
+
+        final CountDownLatch received503Error = new CountDownLatch(1);
+
+        RemoteRequestCompletionBlock completionBlock = new RemoteRequestCompletionBlock() {
+            @Override
+            public void onCompletion(HttpResponse httpResponse, Object result, Throwable e) {
+                if (e instanceof HttpResponseException) {
+                    HttpResponseException htre = (HttpResponseException) e;
+                    if (htre.getStatusCode() == 503) {
+                        received503Error.countDown();
+                    }
+                }
+            }
+        };
+
+        ExecutorService requestExecutorService = Executors.newFixedThreadPool(5);
+        ScheduledExecutorService workExecutorService = Executors.newSingleThreadScheduledExecutor();
+
+        // ScheduledExecutorService executorService = new ScheduledThreadPoolExecutor(4);
+        RemoteRequestRetry request = new RemoteRequestRetry(
+                requestExecutorService,
+                workExecutorService,
+                factory,
+                "GET",
+                url,
+                requestBody,
+                database,
+                requestHeaders,
+                completionBlock
+        );
+
+        // wait for the future to return
+        Future future = requestExecutorService.submit(request);
+        future.get(300, TimeUnit.SECONDS);
+
+        // at this point, the completionBlock should have already been called back
+        // with a 404 error, which will decrement countdown latch.
+        boolean success = received503Error.await(1, TimeUnit.SECONDS);
+        assertTrue(success);
+
+        // make sure that we saw MAX_RETRIES requests sent to server
+        for (int i=0; i<RemoteRequestRetry.MAX_RETRIES; i++) {
+            RecordedRequest recordedRequest = dispatcher.takeRequest(MockHelper.PATH_REGEX_CHECKPOINT);
+            assertNotNull(recordedRequest);
+        }
 
     }
 
