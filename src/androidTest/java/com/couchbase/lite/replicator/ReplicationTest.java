@@ -91,7 +91,6 @@ public class ReplicationTest extends LiteTestCase {
      * Add remote document (simulate w/ mock webserver)
      * Put replication online
      * Make sure doc is pulled
-     *
      */
     public void testGoOnlinePuller() throws Exception {
 
@@ -138,6 +137,8 @@ public class ReplicationTest extends LiteTestCase {
         // wait until a _checkpoint request have been sent
         dispatcher.takeRequestBlocking(MockHelper.PATH_REGEX_CHECKPOINT);
 
+        putReplicationOffline(pullReplication);
+
         // clear out existing queued mock responses to make room for new ones
         dispatcher.clearQueuedResponse(MockHelper.PATH_REGEX_CHECKPOINT);
         dispatcher.clearQueuedResponse(MockHelper.PATH_REGEX_CHANGES);
@@ -154,11 +155,10 @@ public class ReplicationTest extends LiteTestCase {
 
         // long poll changes feed no response
         MockChangesFeedNoResponse mockChangesFeedNoResponse = new MockChangesFeedNoResponse();
-        mockChangesFeedNoResponse.setDelayMs(60 * 1000);
         mockChangesFeedNoResponse.setSticky(true);
         dispatcher.enqueueResponse(MockHelper.PATH_REGEX_CHANGES, mockChangesFeedNoResponse);
 
-        pullReplication.goOnline();
+        putReplicationOnline(pullReplication);
 
         waitForPutCheckpointRequestWithSeq(dispatcher, mockDoc1.getDocSeq());
 
