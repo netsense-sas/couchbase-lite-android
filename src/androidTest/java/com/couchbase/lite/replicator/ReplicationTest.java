@@ -320,10 +320,12 @@ public class ReplicationTest extends LiteTestCase {
 
         // run pull replication
         Replication pullReplication = database.createPullReplication(server.getUrl("/db"));
+        Map<String, Object> headers = new HashMap<String, Object>();
+        headers.put("foo", "bar");
+        pullReplication.setHeaders(headers);
         String checkpointId = pullReplication.remoteCheckpointDocID();
         runReplication2(pullReplication);
         Log.d(TAG, "test done waiting for pullReplication to finish");
-
 
         // assert that we now have both docs in local db
         assertNotNull(database);
@@ -349,6 +351,7 @@ public class ReplicationTest extends LiteTestCase {
         // make assertions about outgoing requests from replicator -> mock
         RecordedRequest getCheckpointRequest = dispatcher.takeRequest(MockHelper.PATH_REGEX_CHECKPOINT);
         assertNotNull(getCheckpointRequest);
+        assertEquals("bar", getCheckpointRequest.getHeader("foo"));
         assertTrue(getCheckpointRequest.getMethod().equals("GET"));
         assertTrue(getCheckpointRequest.getPath().matches(MockHelper.PATH_REGEX_CHECKPOINT));
         RecordedRequest getChangesFeedRequest = dispatcher.takeRequest(MockHelper.PATH_REGEX_CHANGES);
