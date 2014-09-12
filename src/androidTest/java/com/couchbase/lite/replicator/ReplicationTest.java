@@ -2331,59 +2331,67 @@ public class ReplicationTest extends LiteTestCase {
      */
     public void runPushReplicationWithTransientError(int statusCode, String statusMsg, boolean expectReplicatorError) throws Exception {
 
-        Map<String,Object> properties1 = new HashMap<String,Object>();
-        properties1.put("doc1", "testPushReplicationTransientError");
-        createDocWithProperties(properties1);
+        int previous = RemoteRequestRetry.RETRY_DELAY_MS;
+        RemoteRequestRetry.RETRY_DELAY_MS = 5;
 
-        final CustomizableMockHttpClient mockHttpClient = new CustomizableMockHttpClient();
-        mockHttpClient.addResponderFakeLocalDocumentUpdate404();
+        try {
+            Map<String,Object> properties1 = new HashMap<String,Object>();
+            properties1.put("doc1", "testPushReplicationTransientError");
+            createDocWithProperties(properties1);
 
-        CustomizableMockHttpClient.Responder sentinal = CustomizableMockHttpClient.fakeBulkDocsResponder();
-        Queue<CustomizableMockHttpClient.Responder> responders = new LinkedList<CustomizableMockHttpClient.Responder>();
-        responders.add(CustomizableMockHttpClient.transientErrorResponder(statusCode, statusMsg));
-        ResponderChain responderChain = new ResponderChain(responders, sentinal);
-        mockHttpClient.setResponder("_bulk_docs", responderChain);
+            final CustomizableMockHttpClient mockHttpClient = new CustomizableMockHttpClient();
+            mockHttpClient.addResponderFakeLocalDocumentUpdate404();
 
-        // create a replication observer to wait until replication finishes
-        CountDownLatch replicationDoneSignal = new CountDownLatch(1);
-        ReplicationFinishedObserver replicationFinishedObserver = new ReplicationFinishedObserver(replicationDoneSignal);
+            CustomizableMockHttpClient.Responder sentinal = CustomizableMockHttpClient.fakeBulkDocsResponder();
+            Queue<CustomizableMockHttpClient.Responder> responders = new LinkedList<CustomizableMockHttpClient.Responder>();
+            responders.add(CustomizableMockHttpClient.transientErrorResponder(statusCode, statusMsg));
+            ResponderChain responderChain = new ResponderChain(responders, sentinal);
+            mockHttpClient.setResponder("_bulk_docs", responderChain);
 
-        // create replication and add observer
-        manager.setDefaultHttpClientFactory(mockFactoryFactory(mockHttpClient));
-        Replication pusher = database.createPushReplication(getReplicationURL());
-        pusher.addChangeListener(replicationFinishedObserver);
+            // create a replication observer to wait until replication finishes
+            CountDownLatch replicationDoneSignal = new CountDownLatch(1);
+            ReplicationFinishedObserver replicationFinishedObserver = new ReplicationFinishedObserver(replicationDoneSignal);
 
-        // save the checkpoint id for later usage
-        String checkpointId = pusher.remoteCheckpointDocID();
+            // create replication and add observer
+            manager.setDefaultHttpClientFactory(mockFactoryFactory(mockHttpClient));
+            Replication pusher = database.createPushReplication(getReplicationURL());
+            pusher.addChangeListener(replicationFinishedObserver);
 
-        // kick off the replication
-        pusher.start();
+            // save the checkpoint id for later usage
+            String checkpointId = pusher.remoteCheckpointDocID();
 
-        // wait for it to finish
-        boolean success = replicationDoneSignal.await(60, TimeUnit.SECONDS);
-        assertTrue(success);
-        Log.d(TAG, "replicationDoneSignal finished");
+            // kick off the replication
+            pusher.start();
 
-        if (expectReplicatorError == true) {
-            assertNotNull(pusher.getLastError());
-        } else {
-            assertNull(pusher.getLastError());
-        }
+            // wait for it to finish
+            boolean success = replicationDoneSignal.await(60, TimeUnit.SECONDS);
+            assertTrue(success);
+            Log.d(TAG, "replicationDoneSignal finished");
 
-        // workaround for the fact that the replicationDoneSignal.wait() call will unblock before all
-        // the statements in Replication.stopped() have even had a chance to execute.
-        // (specifically the ones that come after the call to notifyChangeListeners())
-        Log.d(TAG, "sleeping");
-        Thread.sleep(1 * 1000);
-        Log.d(TAG, "done sleeping");
+            if (expectReplicatorError == true) {
+                assertNotNull(pusher.getLastError());
+            } else {
+                assertNull(pusher.getLastError());
+            }
 
-        String localLastSequence = database.lastSequenceWithCheckpointId(checkpointId);
-        Log.d(TAG, "localLastSequence: %s", localLastSequence);
+            // workaround for the fact that the replicationDoneSignal.wait() call will unblock before all
+            // the statements in Replication.stopped() have even had a chance to execute.
+            // (specifically the ones that come after the call to notifyChangeListeners())
+            Log.d(TAG, "sleeping 1 second");
+            Thread.sleep(1 * 1000);
+            Log.d(TAG, "done sleeping");
 
-        if (expectReplicatorError == true) {
-            assertNull(localLastSequence);
-        } else {
-            assertNotNull(localLastSequence);
+            String localLastSequence = database.lastSequenceWithCheckpointId(checkpointId);
+            Log.d(TAG, "localLastSequence: %s", localLastSequence);
+
+            if (expectReplicatorError == true) {
+                assertNull(localLastSequence);
+            } else {
+                assertNotNull(localLastSequence);
+            }
+
+        } finally {
+            RemoteRequestRetry.RETRY_DELAY_MS = previous;
         }
 
     }
