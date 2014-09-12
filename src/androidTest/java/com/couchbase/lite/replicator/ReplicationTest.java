@@ -86,6 +86,89 @@ public class ReplicationTest extends LiteTestCase {
     public static final String TAG = "ReplicationTest";
 
     /**
+     * Continuous puller starts offline
+     * Wait for a while .. (til what?)
+     * Add remote document (simulate w/ mock webserver)
+     * Put replication online
+     * Make sure doc is pulled
+     *
+     */
+    public void testGoOnlinePuller() throws Exception {
+
+        // create mock server
+        MockDispatcher dispatcher = new MockDispatcher();
+        dispatcher.setServerType(MockDispatcher.ServerType.SYNC_GW);
+        MockWebServer server = new MockWebServer();
+        server.setDispatcher(dispatcher);
+        server.play();
+
+        // mock documents to be pulled
+        MockDocumentGet.MockDocument mockDoc1 = new MockDocumentGet.MockDocument("doc1", "1-5e38", 1);
+        mockDoc1.setJsonMap(MockHelper.generateRandomJsonMap());
+
+        // checkpoint response 503 error (sticky)
+        WrappedSmartMockResponse wrapped = new WrappedSmartMockResponse(new MockResponse().setResponseCode(503));
+        wrapped.setSticky(true);
+        dispatcher.enqueueResponse(MockHelper.PATH_REGEX_CHECKPOINT, wrapped);
+
+        // _changes response 503 error (sticky)
+        WrappedSmartMockResponse wrapped2 = new WrappedSmartMockResponse(new MockResponse().setResponseCode(503));
+        wrapped2.setSticky(true);
+        dispatcher.enqueueResponse(MockHelper.PATH_REGEX_CHANGES, wrapped2);
+
+        // doc1 response
+        MockDocumentGet mockDocumentGet = new MockDocumentGet(mockDoc1);
+        dispatcher.enqueueResponse(mockDoc1.getDocPathRegex(), mockDocumentGet.generateMockResponse());
+
+        // _revs_diff response -- everything missing
+        MockRevsDiff mockRevsDiff = new MockRevsDiff();
+        mockRevsDiff.setSticky(true);
+        dispatcher.enqueueResponse(MockHelper.PATH_REGEX_REVS_DIFF, mockRevsDiff);
+
+        // _bulk_docs response -- everything stored
+        MockBulkDocs mockBulkDocs = new MockBulkDocs();
+        mockBulkDocs.setSticky(true);
+        dispatcher.enqueueResponse(MockHelper.PATH_REGEX_BULK_DOCS, mockBulkDocs);
+
+        // create and start replication
+        Replication pullReplication = database.createPullReplication(server.getUrl("/db"));
+        pullReplication.setContinuous(true);
+        pullReplication.start();
+
+        // wait until a _checkpoint request have been sent
+        dispatcher.takeRequestBlocking(MockHelper.PATH_REGEX_CHECKPOINT);
+
+        // clear out existing queued mock responses to make room for new ones
+        dispatcher.clearQueuedResponse(MockHelper.PATH_REGEX_CHECKPOINT);
+        dispatcher.clearQueuedResponse(MockHelper.PATH_REGEX_CHANGES);
+
+        // checkpoint PUT or GET response (sticky)
+        MockCheckpointPut mockCheckpointPut = new MockCheckpointPut();
+        mockCheckpointPut.setSticky(true);
+        dispatcher.enqueueResponse(MockHelper.PATH_REGEX_CHECKPOINT, mockCheckpointPut);
+
+        // real _changes response with doc1
+        MockChangesFeed mockChangesFeed = new MockChangesFeed();
+        mockChangesFeed.add(new MockChangesFeed.MockChangedDoc(mockDoc1));
+        dispatcher.enqueueResponse(MockHelper.PATH_REGEX_CHANGES, mockChangesFeed.generateMockResponse());
+
+        // long poll changes feed no response
+        MockChangesFeedNoResponse mockChangesFeedNoResponse = new MockChangesFeedNoResponse();
+        mockChangesFeedNoResponse.setDelayMs(60 * 1000);
+        mockChangesFeedNoResponse.setSticky(true);
+        dispatcher.enqueueResponse(MockHelper.PATH_REGEX_CHANGES, mockChangesFeedNoResponse);
+
+        pullReplication.goOnline();
+
+        waitForPutCheckpointRequestWithSeq(dispatcher, mockDoc1.getDocSeq());
+
+        stopReplication2(pullReplication);
+        server.shutdown();
+
+    }
+
+
+    /**
      * Start continuous replication with a closed db.
      *
      * Expected behavior:
@@ -2234,67 +2317,7 @@ public class ReplicationTest extends LiteTestCase {
     }
 
 
-    /**
-     * TODO: this test is unnecessarily slow.  The replicator has to timeout
-     * TODO: while retrying requests.
-     *
-     * TODO: delete this test because it is redundant
-     *
-     * @throws Exception
-     */
-    public void deleteTestHeaders() throws Exception {
 
-        final CustomizableMockHttpClient mockHttpClient = new CustomizableMockHttpClient();
-        mockHttpClient.addResponderThrowExceptionAllRequests();
-
-        HttpClientFactory mockHttpClientFactory = new HttpClientFactory() {
-            @Override
-            public HttpClient getHttpClient() {
-                return mockHttpClient;
-            }
-
-            @Override
-            public void addCookies(List<Cookie> cookies) {
-
-            }
-
-            @Override
-            public void deleteCookie(String name) {
-
-            }
-
-            @Override
-            public CookieStore getCookieStore() {
-                return null;
-            }
-        };
-
-        URL remote = getReplicationURL();
-
-        manager.setDefaultHttpClientFactory(mockHttpClientFactory);
-        Replication puller = database.createPullReplication(remote);
-
-        Map<String, Object> headers = new HashMap<String, Object>();
-        headers.put("foo", "bar");
-        puller.setHeaders(headers);
-
-        runReplication2(puller);
-        assertNotNull(puller.getLastError());
-
-        boolean foundFooHeader = false;
-        List<HttpRequest> requests = mockHttpClient.getCapturedRequests();
-        for (HttpRequest request : requests) {
-            Header[] requestHeaders = request.getHeaders("foo");
-            for (Header requestHeader : requestHeaders) {
-                foundFooHeader = true;
-                Assert.assertEquals("bar", requestHeader.getValue());
-            }
-        }
-
-        Assert.assertTrue(foundFooHeader);
-        manager.setDefaultHttpClientFactory(null);
-
-    }
 
     /**
      * https://github.com/couchbase/couchbase-lite-android/issues/247
@@ -2579,7 +2602,7 @@ public class ReplicationTest extends LiteTestCase {
         Replication.ChangeListener changeListener = new Replication.ChangeListener() {
             @Override
             public void changed(Replication.ChangeEvent event) {
-                if (event.getTransition().getDestination() == ReplicationState.OFFLINE) {
+                if (event.getTransition() != null && event.getTransition().getDestination() == ReplicationState.OFFLINE) {
                     wentOffline.countDown();
                 }
             }
@@ -2602,7 +2625,7 @@ public class ReplicationTest extends LiteTestCase {
         Replication.ChangeListener changeListener = new Replication.ChangeListener() {
             @Override
             public void changed(Replication.ChangeEvent event) {
-                if (event.getTransition().getDestination() == ReplicationState.RUNNING) {
+                if (event.getTransition() != null && event.getTransition().getDestination() == ReplicationState.RUNNING) {
                     wentOnline.countDown();
                 }
             }
