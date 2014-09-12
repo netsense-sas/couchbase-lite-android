@@ -2668,7 +2668,9 @@ public class ReplicationTest extends LiteTestCase {
         }
 
         // sleep for a while to give things a chance to start
-        Thread.sleep(5 * 1000);
+        Log.d(TAG, "sleeping for 2 seconds");
+        Thread.sleep(2 * 1000);
+        Log.d(TAG, "done sleeping");
 
         // how many _changes feed requests has the replicator made since going online?
         int numChangesRequests = 0;
