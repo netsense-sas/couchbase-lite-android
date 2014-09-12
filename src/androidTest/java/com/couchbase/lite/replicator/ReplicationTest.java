@@ -1113,9 +1113,8 @@ public class ReplicationTest extends LiteTestCase {
         assertEquals(1, replicationDoneSignal.getCount());
 
         // cleanup
-        pull.stop();
-        boolean success = replicationDoneSignal.await(60, TimeUnit.SECONDS);
-        assertTrue(success);
+        stopReplication2(pull);
+
         server.shutdown();
 
 
@@ -2396,6 +2395,7 @@ public class ReplicationTest extends LiteTestCase {
 
         assertTrue(pusher.getLastError() != null);
 
+
     }
 
     /**
@@ -2431,7 +2431,7 @@ public class ReplicationTest extends LiteTestCase {
         boolean success = countDownLatch.await(30, TimeUnit.SECONDS);
         assertTrue(success);
 
-        pusher.stop();
+        stopReplication2(pusher);
 
     }
 
