@@ -16,7 +16,9 @@ import org.apache.http.HttpResponse;
 import org.apache.http.client.HttpResponseException;
 
 import java.net.URL;
+import java.util.ArrayList;
 import java.util.HashMap;
+import java.util.List;
 import java.util.Map;
 import java.util.concurrent.CountDownLatch;
 import java.util.concurrent.ExecutorService;
@@ -80,7 +82,7 @@ public class RemoteRequestTest extends LiteTestCase {
             }
         };
 
-        ExecutorService requestExecutorService = Executors.newFixedThreadPool(5);
+        ScheduledExecutorService requestExecutorService = Executors.newScheduledThreadPool(5);
         ScheduledExecutorService workExecutorService = Executors.newSingleThreadScheduledExecutor();
 
         // ScheduledExecutorService executorService = new ScheduledThreadPoolExecutor(4);
@@ -157,7 +159,7 @@ public class RemoteRequestTest extends LiteTestCase {
             }
         };
 
-        ExecutorService requestExecutorService = Executors.newFixedThreadPool(5);
+        ScheduledExecutorService requestExecutorService = Executors.newScheduledThreadPool(5);
         ScheduledExecutorService workExecutorService = Executors.newSingleThreadScheduledExecutor();
 
         // ScheduledExecutorService executorService = new ScheduledThreadPoolExecutor(4);
@@ -244,8 +246,10 @@ public class RemoteRequestTest extends LiteTestCase {
             }
         };
 
-        ExecutorService requestExecutorService = Executors.newFixedThreadPool(5);
+        ScheduledExecutorService requestExecutorService = Executors.newScheduledThreadPool(5);
         ScheduledExecutorService workExecutorService = Executors.newSingleThreadScheduledExecutor();
+
+        List<Future> requestFutures = new ArrayList<Future>();
 
         for (int i=0; i<numRequests; i++) {
 
@@ -262,9 +266,13 @@ public class RemoteRequestTest extends LiteTestCase {
                     completionBlock
             );
 
-            Future future = requestExecutorService.submit(request);
+            Future future = request.submit();
+            requestFutures.add(future);
 
+        }
 
+        for (Future future : requestFutures) {
+            future.get();
         }
 
         boolean success = received503Error.await(60, TimeUnit.SECONDS);
