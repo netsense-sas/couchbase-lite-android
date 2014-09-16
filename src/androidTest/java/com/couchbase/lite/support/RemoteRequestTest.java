@@ -99,7 +99,7 @@ public class RemoteRequestTest extends LiteTestCase {
         );
 
         // wait for the future to return
-        Future future = requestExecutorService.submit(request);
+        Future future = request.submit();
         future.get(300, TimeUnit.SECONDS);
 
         // at this point, the completionBlock should have already been called back
@@ -176,7 +176,8 @@ public class RemoteRequestTest extends LiteTestCase {
         );
 
         // wait for the future to return
-        Future future = requestExecutorService.submit(request);
+        Future future = request.submit();
+
         future.get(300, TimeUnit.SECONDS);
 
         // at this point, the completionBlock should have already been called back
