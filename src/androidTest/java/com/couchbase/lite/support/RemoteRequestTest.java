@@ -191,5 +191,93 @@ public class RemoteRequestTest extends LiteTestCase {
     }
 
 
+    /**
+     * Reproduce a severe issue where the pusher stops working because it's remoteRequestExecutor
+     * is full of tasks which are all blocked trying to add more tasks to the queue.
+     *
+     * @throws Exception
+     */
+    public void testRetryQueueDeadlock() throws Exception {
+
+        // lower retry to speed up test
+        RemoteRequestRetry.RETRY_DELAY_MS = 5;
+
+        PersistentCookieStore cookieStore = database.getPersistentCookieStore();
+        CouchbaseLiteHttpClientFactory factory = new CouchbaseLiteHttpClientFactory(cookieStore);
+
+        // create mockwebserver and custom dispatcher
+        MockDispatcher dispatcher = new MockDispatcher();
+        MockWebServer server = MockHelper.getMockWebServer(dispatcher);
+        dispatcher.setServerType(MockDispatcher.ServerType.SYNC_GW);
+
+        // respond with 503 error for all requests
+        MockResponse response = new MockResponse().setResponseCode(503);
+        WrappedSmartMockResponse wrapped = new WrappedSmartMockResponse(response);
+        wrapped.setDelayMs(50);
+        wrapped.setSticky(true);
+        dispatcher.enqueueResponse(MockHelper.PATH_REGEX_CHECKPOINT, wrapped);
+
+        server.play();
+
+        String urlString = String.format("%s/%s", server.getUrl("/db"), "_local");
+        URL url = new URL(urlString);
+
+        Map<String, Object> requestBody = new HashMap<String, Object>();
+        requestBody.put("foo", "bar");
+
+        Map<String, Object> requestHeaders = new HashMap<String, Object>();
+
+        int threadPoolSize = 5;
+        int numRequests = 10;
+
+        final CountDownLatch received503Error = new CountDownLatch(numRequests);
+
+        RemoteRequestCompletionBlock completionBlock = new RemoteRequestCompletionBlock() {
+            @Override
+            public void onCompletion(HttpResponse httpResponse, Object result, Throwable e) {
+                if (e instanceof HttpResponseException) {
+                    HttpResponseException htre = (HttpResponseException) e;
+                    if (htre.getStatusCode() == 503) {
+                        received503Error.countDown();
+                    }
+                }
+            }
+        };
+
+        ExecutorService requestExecutorService = Executors.newFixedThreadPool(5);
+        ScheduledExecutorService workExecutorService = Executors.newSingleThreadScheduledExecutor();
+
+        for (int i=0; i<numRequests; i++) {
+
+            // ScheduledExecutorService executorService = new ScheduledThreadPoolExecutor(4);
+            RemoteRequestRetry request = new RemoteRequestRetry(
+                    requestExecutorService,
+                    workExecutorService,
+                    factory,
+                    "GET",
+                    url,
+                    requestBody,
+                    database,
+                    requestHeaders,
+                    completionBlock
+            );
+
+            Future future = requestExecutorService.submit(request);
+
+
+        }
+
+        boolean success = received503Error.await(60, TimeUnit.SECONDS);
+        assertTrue(success);
+
+
+
+
+
+
+    }
+
+
+
 
 }
