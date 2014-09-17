@@ -402,25 +402,7 @@ public abstract class LiteTestCase extends LiteTestCaseBase {
     public void stopReplication2(Replication replication) throws Exception {
 
         final CountDownLatch replicationDoneSignal = new CountDownLatch(1);
-        replication.addChangeListener(
-                new Replication.ChangeListener() {
-            @Override
-            public void changed(Replication.ChangeEvent event) {
-                if (event.getTransition() != null) {
-                    if (event.getTransition().getDestination() == ReplicationState.STOPPING) {
-                        Log.d(TAG, "Replicator is stopping");
-                    }
-                    if (event.getTransition().getDestination() == ReplicationState.STOPPED) {
-
-                        Log.d(TAG, "Replicator is stopped");
-                        replicationDoneSignal.countDown();
-
-                        assertEquals(event.getChangeCount(), event.getCompletedChangeCount());
-
-                    }
-                }
-            }
-        });
+        replication.addChangeListener(new ReplicationFinishedObserver(replicationDoneSignal));
 
         replication.stop();
 
@@ -514,25 +496,7 @@ public abstract class LiteTestCase extends LiteTestCaseBase {
     public void runReplication2(Replication replication) throws Exception {
 
         final CountDownLatch replicationDoneSignal = new CountDownLatch(1);
-        replication.addChangeListener(new Replication.ChangeListener() {
-            @Override
-            public void changed(Replication.ChangeEvent event) {
-                if (event.getTransition() != null) {
-                    if (event.getTransition().getDestination() == ReplicationState.STOPPING) {
-                        Log.d(TAG, "Replicator is stopping");
-                    }
-                    if (event.getTransition().getDestination() == ReplicationState.STOPPED) {
-
-                        Log.d(TAG, "Replicator is stopped");
-                        replicationDoneSignal.countDown();
-
-                        if (event.getChangeCount() != event.getCompletedChangeCount()) {
-                            Log.w(TAG, "getChangeCount (%d) != getCompletedChangeCount (%d)", event.getChangeCount(), event.getCompletedChangeCount());
-                        }
-                    }
-                }
-            }
-        });
+        replication.addChangeListener(new ReplicationFinishedObserver(replicationDoneSignal));
         replication.start();
         boolean success = replicationDoneSignal.await(300, TimeUnit.SECONDS);
         assertTrue(success);
@@ -760,5 +724,81 @@ public abstract class LiteTestCase extends LiteTestCaseBase {
 
 
     }
+
+    public static class ReplicationIdleObserver implements Replication.ChangeListener {
+
+        private CountDownLatch doneSignal;
+
+        public ReplicationIdleObserver(CountDownLatch doneSignal) {
+            this.doneSignal = doneSignal;
+        }
+
+        @Override
+        public void changed(Replication.ChangeEvent event) {
+
+            if (event.getSource().getStatus() == Replication.ReplicationStatus.REPLICATION_IDLE) {
+                doneSignal.countDown();
+            }
+        }
+
+    }
+
+    public static class ReplicationFinishedObserver implements Replication.ChangeListener {
+
+        private CountDownLatch doneSignal;
+
+        public ReplicationFinishedObserver(CountDownLatch doneSignal) {
+            this.doneSignal = doneSignal;
+        }
+
+        @Override
+        public void changed(Replication.ChangeEvent event) {
+
+            if (event.getSource().getStatus() == Replication.ReplicationStatus.REPLICATION_STOPPED) {
+                doneSignal.countDown();
+                assertEquals(event.getChangeCount(), event.getCompletedChangeCount());
+            }
+        }
+
+    }
+
+    public static class ReplicationOfflineObserver implements Replication.ChangeListener {
+
+        private CountDownLatch doneSignal;
+
+        public ReplicationOfflineObserver(CountDownLatch doneSignal) {
+            this.doneSignal = doneSignal;
+        }
+
+        @Override
+        public void changed(Replication.ChangeEvent event) {
+
+            if (event.getSource().getStatus() == Replication.ReplicationStatus.REPLICATION_OFFLINE) {
+                doneSignal.countDown();
+            }
+        }
+
+    }
+
+    public static class ReplicationActiveObserver implements Replication.ChangeListener {
+
+        private CountDownLatch doneSignal;
+
+        public ReplicationActiveObserver(CountDownLatch doneSignal) {
+            this.doneSignal = doneSignal;
+        }
+
+        @Override
+        public void changed(Replication.ChangeEvent event) {
+
+            if (event.getSource().getStatus() == Replication.ReplicationStatus.REPLICATION_ACTIVE) {
+                doneSignal.countDown();
+            }
+        }
+
+    }
+
+
+
 
 }

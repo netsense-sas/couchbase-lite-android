@@ -162,14 +162,7 @@ public class DatabaseTest extends LiteTestCase {
         assertEquals(0, database.getActiveReplications().size());
 
         final CountDownLatch replicationRunning = new CountDownLatch(1);
-        replication.addChangeListener(new Replication.ChangeListener() {
-            @Override
-            public void changed(Replication.ChangeEvent event) {
-                if (event.getTransition() != null && event.getTransition().getDestination() == ReplicationState.RUNNING) {
-                    replicationRunning.countDown();
-                }
-            }
-        });
+        replication.addChangeListener(new ReplicationActiveObserver(replicationRunning));
 
         replication.start();
 
@@ -180,14 +173,7 @@ public class DatabaseTest extends LiteTestCase {
         assertEquals(1, database.getActiveReplications().size());
 
         final CountDownLatch replicationDoneSignal = new CountDownLatch(1);
-        replication.addChangeListener(new Replication.ChangeListener() {
-            @Override
-            public void changed(Replication.ChangeEvent event) {
-                if (event.getTransition() != null && event.getTransition().getDestination() == ReplicationState.STOPPED) {
-                    replicationDoneSignal.countDown();
-                }
-            }
-        });
+        replication.addChangeListener(new ReplicationFinishedObserver(replicationDoneSignal));
 
         success = replicationDoneSignal.await(60, TimeUnit.SECONDS);
         assertTrue(success);

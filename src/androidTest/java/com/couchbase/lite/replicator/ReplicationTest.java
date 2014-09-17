@@ -211,17 +211,7 @@ public class ReplicationTest extends LiteTestCase {
         final List<ReplicationStateTransition> transitions = new ArrayList<ReplicationStateTransition>();
         final Replication replication = database.createPullReplication(new URL("http://fake.com/foo"));
         replication.setContinuous(true);
-        replication.addChangeListener(new Replication.ChangeListener() {
-            @Override
-            public void changed(Replication.ChangeEvent event) {
-                if (event.getTransition() != null) {
-                    transitions.add(event.getTransition());
-                    if (event.getTransition().getDestination() == ReplicationState.STOPPED) {
-                        countDownLatch.countDown();
-                    }
-                }
-            }
-        });
+        replication.addChangeListener(new ReplicationFinishedObserver(countDownLatch));
 
         replication.start();
         replication.start();  // this should be ignored
@@ -623,23 +613,7 @@ public class ReplicationTest extends LiteTestCase {
         pullReplication.setContinuous(true);
 
         final CountDownLatch replicationDoneSignal = new CountDownLatch(1);
-        pullReplication.addChangeListener(new Replication.ChangeListener() {
-            @Override
-            public void changed(Replication.ChangeEvent event) {
-                if (event.getTransition() != null) {
-                    if (event.getTransition().getDestination() == ReplicationState.STOPPING) {
-                        Log.d(TAG, "Replicator is stopping");
-                    }
-                    if (event.getTransition().getDestination() == ReplicationState.STOPPED) {
-
-                        // assertEquals(event.getChangeCount(), event.getCompletedChangeCount());
-
-                        Log.d(TAG, "Replicator is stopped");
-                        replicationDoneSignal.countDown();
-                    }
-                }
-            }
-        });
+        pullReplication.addChangeListener(new ReplicationFinishedObserver(replicationDoneSignal));
 
         database.addChangeListener(new Database.ChangeListener() {
             @Override
@@ -2599,14 +2573,7 @@ public class ReplicationTest extends LiteTestCase {
 
         // this was a useless test, the replication wasn't even started
         final CountDownLatch wentOffline = new CountDownLatch(1);
-        Replication.ChangeListener changeListener = new Replication.ChangeListener() {
-            @Override
-            public void changed(Replication.ChangeEvent event) {
-                if (event.getTransition() != null && event.getTransition().getDestination() == ReplicationState.OFFLINE) {
-                    wentOffline.countDown();
-                }
-            }
-        };
+        Replication.ChangeListener changeListener = new ReplicationOfflineObserver(wentOffline);
         replication.addChangeListener(changeListener);
 
         replication.goOffline();
@@ -2622,14 +2589,7 @@ public class ReplicationTest extends LiteTestCase {
 
         // this was a useless test, the replication wasn't even started
         final CountDownLatch wentOnline = new CountDownLatch(1);
-        Replication.ChangeListener changeListener = new Replication.ChangeListener() {
-            @Override
-            public void changed(Replication.ChangeEvent event) {
-                if (event.getTransition() != null && event.getTransition().getDestination() == ReplicationState.RUNNING) {
-                    wentOnline.countDown();
-                }
-            }
-        };
+        Replication.ChangeListener changeListener = new ReplicationActiveObserver(wentOnline);
         replication.addChangeListener(changeListener);
 
         replication.goOnline();
@@ -2955,14 +2915,7 @@ public class ReplicationTest extends LiteTestCase {
         replicator.start();
 
         final CountDownLatch replicationStarted = new CountDownLatch(1);
-        replicator.addChangeListener(new Replication.ChangeListener() {
-            @Override
-            public void changed(Replication.ChangeEvent event) {
-                if (event.getTransition() != null && event.getTransition().getDestination() == ReplicationState.RUNNING) {
-                    replicationStarted.countDown();
-                }
-            }
-        });
+        replicator.addChangeListener(new ReplicationActiveObserver(replicationStarted));
 
         boolean success = replicationStarted.await(30, TimeUnit.SECONDS);
         assertTrue(success);
@@ -3008,43 +2961,6 @@ public class ReplicationTest extends LiteTestCase {
     }
 
 
-    public static class ReplicationIdleObserver implements Replication.ChangeListener {
 
-        private CountDownLatch doneSignal;
-
-        public ReplicationIdleObserver(CountDownLatch doneSignal) {
-            this.doneSignal = doneSignal;
-        }
-
-        @Override
-        public void changed(Replication.ChangeEvent event) {
-
-            if (event.getTransition() != null && event.getTransition().getDestination() == ReplicationState.IDLE) {
-                doneSignal.countDown();
-            }
-        }
-
-    }
-
-    public static class ReplicationFinishedObserver implements Replication.ChangeListener {
-
-        private CountDownLatch doneSignal;
-
-        public ReplicationFinishedObserver(CountDownLatch doneSignal) {
-            this.doneSignal = doneSignal;
-        }
-
-        @Override
-        public void changed(Replication.ChangeEvent event) {
-
-            if (event.getTransition() != null) {
-                Log.d(TAG, "transition: %s", event.getTransition());
-                if (event.getTransition().getDestination() == ReplicationState.STOPPED) {
-                    doneSignal.countDown();
-                }
-            }
-        }
-
-    }
 
 }
