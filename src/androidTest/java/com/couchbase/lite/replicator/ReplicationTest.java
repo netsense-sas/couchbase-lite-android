@@ -22,6 +22,7 @@ import com.couchbase.lite.View;
 import com.couchbase.lite.auth.Authenticator;
 import com.couchbase.lite.auth.AuthenticatorFactory;
 import com.couchbase.lite.auth.FacebookAuthorizer;
+import com.couchbase.lite.internal.Body;
 import com.couchbase.lite.internal.RevisionInternal;
 import com.couchbase.lite.mockserver.MockBulkDocs;
 import com.couchbase.lite.mockserver.MockChangesFeed;
@@ -29,6 +30,7 @@ import com.couchbase.lite.mockserver.MockChangesFeedNoResponse;
 import com.couchbase.lite.mockserver.MockCheckpointGet;
 import com.couchbase.lite.mockserver.MockCheckpointPut;
 import com.couchbase.lite.mockserver.MockDispatcher;
+import com.couchbase.lite.mockserver.MockDocumentBulkGet;
 import com.couchbase.lite.mockserver.MockDocumentGet;
 import com.couchbase.lite.mockserver.MockDocumentPut;
 import com.couchbase.lite.mockserver.MockFacebookAuthPost;
@@ -382,6 +384,16 @@ public class ReplicationTest extends LiteTestCase {
         }
         dispatcher.enqueueResponse(mockDoc2.getDocPathRegex(), mockDocumentGet.generateMockResponse());
 
+        // _bulk_get response
+        MockDocumentBulkGet mockBulkGet = new MockDocumentBulkGet();
+        mockBulkGet.addDocument(mockDoc1);
+        mockBulkGet.addDocument(mockDoc2);
+        dispatcher.enqueueResponse(MockHelper.PATH_REGEX_BULK_GET, mockBulkGet);
+        /*MockResponse mockResponse = mockBulkGet.generateMockResponse(null);
+        byte[] body = mockResponse.getBody();
+        String bodyString = new String(body);
+        Log.d(TAG, "bodyString: %s", bodyString);*/
+
         // respond to all PUT Checkpoint requests
         MockCheckpointPut mockCheckpointPut = new MockCheckpointPut();
         mockCheckpointPut.setSticky(true);
@@ -398,7 +410,18 @@ public class ReplicationTest extends LiteTestCase {
         pullReplication.setHeaders(headers);
         String checkpointId = pullReplication.remoteCheckpointDocID();
         runReplication2(pullReplication);
-        Log.d(TAG, "test done waiting for pullReplication to finish");
+        Log.d(TAG, "pullReplication finished");
+
+        database.addChangeListener(new Database.ChangeListener() {
+            @Override
+            public void changed(Database.ChangeEvent event) {
+                List<DocumentChange> changes = event.getChanges();
+                for (DocumentChange documentChange : changes) {
+                    Log.d(TAG, "doc change callback: %s", documentChange.getDocumentId());
+                }
+            }
+        });
+
 
         // assert that we now have both docs in local db
         assertNotNull(database);
@@ -430,17 +453,10 @@ public class ReplicationTest extends LiteTestCase {
         RecordedRequest getChangesFeedRequest = dispatcher.takeRequest(MockHelper.PATH_REGEX_CHANGES);
         if (serverType == MockDispatcher.ServerType.SYNC_GW) {
             assertTrue(getChangesFeedRequest.getMethod().equals("POST"));
-
         } else {
             assertTrue(getChangesFeedRequest.getMethod().equals("GET"));
         }
         assertTrue(getChangesFeedRequest.getPath().matches(MockHelper.PATH_REGEX_CHANGES));
-        RecordedRequest doc1Request = dispatcher.takeRequest(mockDoc1.getDocPathRegex());
-        assertTrue(doc1Request.getMethod().equals("GET"));
-        assertTrue(doc1Request.getPath().matches(mockDoc1.getDocPathRegex()));
-        RecordedRequest doc2Request = dispatcher.takeRequest(mockDoc2.getDocPathRegex());
-        assertTrue(doc2Request.getMethod().equals("GET"));
-        assertTrue(doc2Request.getPath().matches(mockDoc2.getDocPathRegex()));
 
         // wait until the mock webserver receives a PUT checkpoint request with doc #2's sequence
         Log.d(TAG, "waiting for PUT checkpoint %s", mockDoc2.getDocSeq());
@@ -454,6 +470,22 @@ public class ReplicationTest extends LiteTestCase {
 
         // assert completed count makes sense
         assertEquals(pullReplication.getChangesCount(), pullReplication.getCompletedChangesCount());
+
+        // allow for either a single _bulk_get request or individual doc requests.
+        // if the server is sync gateway, it is allowable for replicator to use _bulk_get
+        RecordedRequest bulkGetRequest = dispatcher.takeRequest(MockHelper.PATH_REGEX_BULK_GET);
+        if (bulkGetRequest != null) {
+            String bulkGetBody = bulkGetRequest.getUtf8Body();
+            assertTrue(bulkGetBody.contains(mockDoc1.getDocId()));
+            assertTrue(bulkGetBody.contains(mockDoc2.getDocId()));
+        } else {
+            RecordedRequest doc1Request = dispatcher.takeRequest(mockDoc1.getDocPathRegex());
+            assertTrue(doc1Request.getMethod().equals("GET"));
+            assertTrue(doc1Request.getPath().matches(mockDoc1.getDocPathRegex()));
+            RecordedRequest doc2Request = dispatcher.takeRequest(mockDoc2.getDocPathRegex());
+            assertTrue(doc2Request.getMethod().equals("GET"));
+            assertTrue(doc2Request.getPath().matches(mockDoc2.getDocPathRegex()));
+        }
 
         // Shut down the server. Instances cannot be reused.
         if (shutdownMockWebserver) {
