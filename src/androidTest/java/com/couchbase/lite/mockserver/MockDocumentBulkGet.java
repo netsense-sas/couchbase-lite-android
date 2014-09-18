@@ -144,7 +144,6 @@ public class MockDocumentBulkGet implements SmartMockResponse {
             append(o, "\r\n").append(o, "--").append(o, boundary).append(o, "--");
 
             byte[] byteArray = o.toByteArray();
-            String asString = new String(byteArray);
 
             mockResponse.setBody(byteArray);
 
