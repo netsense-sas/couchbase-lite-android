@@ -844,9 +844,11 @@ public class ReplicationTest extends LiteTestCase {
      *
      * @throws Exception
      */
-    public void failingTestPushRetry() throws Exception {
+    public void testPushRetry() throws Exception {
 
-        RemoteRequestRetry.RETRY_DELAY_MS = 5; // speed up test execution
+        RemoteRequestRetry.RETRY_DELAY_MS = 500; // speed up test execution
+
+        ReplicationInternal.FAILED_REVISION_RETRY_INITIAL_DELAY_MS = 5 * 1000;  // speed up test execution
 
         // create mockwebserver and custom dispatcher
         MockDispatcher dispatcher = new MockDispatcher();
@@ -896,6 +898,8 @@ public class ReplicationTest extends LiteTestCase {
             dispatcher.takeRecordedResponseBlocking(request);
         }
 
+        Thread.sleep(30 * 1000);
+
         // TODO: test fails here, because there's nothing to cause it to retry after the
         // TODO: request does it's retry attempt.  Eg, continuous replicator needs to keep
         // TODO: sending new requests
@@ -905,6 +909,7 @@ public class ReplicationTest extends LiteTestCase {
         assertNotNull(request);
         dispatcher.takeRecordedResponseBlocking(request);
 
+        Log.d(TAG, "Stopping replication");
         stopReplication(replication);
         server.shutdown();
 
