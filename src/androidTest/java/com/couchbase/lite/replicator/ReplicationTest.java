@@ -863,7 +863,7 @@ public class ReplicationTest extends LiteTestCase {
 
         // _revs_diff response -- everything missing
         MockRevsDiff mockRevsDiff = new MockRevsDiff();
-        // mockRevsDiff.setSticky(true);
+        mockRevsDiff.setSticky(true);
         dispatcher.enqueueResponse(MockHelper.PATH_REGEX_REVS_DIFF, mockRevsDiff);
 
         // _bulk_docs response -- 503 errors
@@ -891,23 +891,23 @@ public class ReplicationTest extends LiteTestCase {
         Document doc1 = createDocumentForPushReplication("doc1", null, null);
 
         // we should expect to at least see numAttempts attempts at doing POST to _bulk_docs
-        int numAttempts = RemoteRequestRetry.MAX_RETRIES;
-        for (int i=0; i < numAttempts; i++) {
+        for (int i=0; i < RemoteRequestRetry.MAX_RETRIES; i++) {
             RecordedRequest request = dispatcher.takeRequestBlocking(MockHelper.PATH_REGEX_BULK_DOCS);
             assertNotNull(request);
             dispatcher.takeRecordedResponseBlocking(request);
         }
-
-        Thread.sleep(30 * 1000);
 
         // TODO: test fails here, because there's nothing to cause it to retry after the
         // TODO: request does it's retry attempt.  Eg, continuous replicator needs to keep
         // TODO: sending new requests
         // but it shouldn't give up there, it should keep retrying, so we should expect to
         // see at least one more request (probably lots more, but let's just wait for one)
-        RecordedRequest request = dispatcher.takeRequestBlocking(MockHelper.PATH_REGEX_BULK_DOCS);
-        assertNotNull(request);
-        dispatcher.takeRecordedResponseBlocking(request);
+        // we should expect to at least see numAttempts attempts at doing POST to _bulk_docs
+        for (int i=0; i < RemoteRequestRetry.MAX_RETRIES; i++) {
+            RecordedRequest request = dispatcher.takeRequestBlocking(MockHelper.PATH_REGEX_BULK_DOCS);
+            assertNotNull(request);
+            dispatcher.takeRecordedResponseBlocking(request);
+        }
 
         Log.d(TAG, "Stopping replication");
         stopReplication(replication);
