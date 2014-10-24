@@ -839,16 +839,95 @@ public class ReplicationTest extends LiteTestCase {
 
 
     /**
+     * Make sure that if a continuous pull gets an error
+     * pulling a doc, it will keep retrying it rather than giving up right away.
+     *
+     * See issue #299
+     */
+    public void testContinuousPullRetry() throws Exception {
+
+        // start continuous pull
+
+        // tell mockwebserver to changes feed with docA, with 503 error
+
+        // wait until puller makes request to _changes feed
+
+        // set _changes feed to block for a long time
+
+        // wait until puller tries to get docA num_retries number of times
+
+        // assert that puller tries AGAIN to get docA num_retries number of times
+
+        // done
+
+
+        // create mockwebserver and custom dispatcher
+        MockDispatcher dispatcher = new MockDispatcher();
+        MockWebServer server = MockHelper.getMockWebServer(dispatcher);
+        dispatcher.setServerType(MockDispatcher.ServerType.SYNC_GW);
+
+        // mock documents to be pulled
+        MockDocumentGet.MockDocument mockDoc1 = new MockDocumentGet.MockDocument("doc1", "1-5e38", 1);
+        mockDoc1.setJsonMap(MockHelper.generateRandomJsonMap());
+
+        // checkpoint GET response w/ 404
+        MockResponse fakeCheckpointResponse = new MockResponse();
+        MockHelper.set404NotFoundJson(fakeCheckpointResponse);
+        dispatcher.enqueueResponse(MockHelper.PATH_REGEX_CHECKPOINT, fakeCheckpointResponse);
+
+        // _changes response
+        MockChangesFeed mockChangesFeed = new MockChangesFeed();
+        mockChangesFeed.add(new MockChangesFeed.MockChangedDoc(mockDoc1));
+        dispatcher.enqueueResponse(MockHelper.PATH_REGEX_CHANGES, mockChangesFeed.generateMockResponse());
+
+        // add sticky _changes response to feed=longpoll that just blocks for 60 seconds to emulate
+        // server that doesn't have any new changes
+        MockChangesFeedNoResponse mockChangesFeedNoResponse = new MockChangesFeedNoResponse();
+        mockChangesFeedNoResponse.setDelayMs(5 * 60 * 1000);
+        mockChangesFeedNoResponse.setSticky(true);
+        dispatcher.enqueueResponse(MockHelper.PATH_REGEX_CHANGES, mockChangesFeedNoResponse);
+
+        // doc1 response - 503 error
+        MockResponse mockResponse = new MockResponse().setResponseCode(503);
+        WrappedSmartMockResponse mockBulkDocs = new WrappedSmartMockResponse(mockResponse, false);
+        mockBulkDocs.setSticky(true);
+        dispatcher.enqueueResponse(mockDoc1.getDocPathRegex(), mockBulkDocs);
+
+        // respond to all PUT Checkpoint requests
+        MockCheckpointPut mockCheckpointPut = new MockCheckpointPut();
+        mockCheckpointPut.setSticky(true);
+        mockCheckpointPut.setDelayMs(500);
+        dispatcher.enqueueResponse(MockHelper.PATH_REGEX_CHECKPOINT, mockCheckpointPut);
+
+        // start mock server
+        server.play();
+
+        // run pull replication
+        Replication pullReplication = database.createPullReplication(server.getUrl("/db"));
+        pullReplication.setContinuous(true);
+        pullReplication.start();
+
+
+
+
+
+        Thread.sleep(60 * 1000);
+
+
+    }
+
+    /**
      * Make sure that if a continuous push gets an error
      * pushing a doc, it will keep retrying it rather than giving up right away.
      *
-     * @throws Exception
+     * See issue #299
+     *
      */
-    public void testPushRetry() throws Exception {
+    public void testContinuousPushRetry() throws Exception {
 
         RemoteRequestRetry.RETRY_DELAY_MS = 500; // speed up test execution
 
-        ReplicationInternal.FAILED_REVISION_RETRY_INITIAL_DELAY_MS = 5 * 1000;  // speed up test execution
+        ReplicationInternal.FAILED_REVISION_RETRY_INITIAL_DELAY_MS = 500;  // speed up test execution
 
         // create mockwebserver and custom dispatcher
         MockDispatcher dispatcher = new MockDispatcher();
