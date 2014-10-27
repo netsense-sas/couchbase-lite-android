@@ -4,7 +4,9 @@ import com.squareup.okhttp.mockwebserver.Dispatcher;
 import com.squareup.okhttp.mockwebserver.MockResponse;
 import com.squareup.okhttp.mockwebserver.RecordedRequest;
 
+import java.util.ArrayList;
 import java.util.HashMap;
+import java.util.List;
 import java.util.Map;
 import java.util.concurrent.BlockingQueue;
 import java.util.concurrent.ConcurrentHashMap;
@@ -193,6 +195,24 @@ public class MockDispatcher extends Dispatcher {
             throw new RuntimeException(e);
         }
     }
+
+    public List<RecordedRequest> takeRequestBlockingNTimes(int n, String pathRegex, boolean takeResponse) {
+
+        ArrayList recordedRequests = new ArrayList();
+        for (int i = 0; i < n; i++) {
+            RecordedRequest request = takeRequestBlocking(MockHelper.PATH_REGEX_BULK_DOCS);
+            if (request == null) {
+                throw new RuntimeException("request is null");
+            }
+            recordedRequests.add(request);
+            if (takeResponse) {
+                takeRecordedResponseBlocking(request);
+            }
+        }
+        return recordedRequests;
+
+    }
+
 
     public boolean verifyAllRecordedRequestsTaken() {
         for (String pathRegex : recordedRequestQueueMap.keySet()) {
