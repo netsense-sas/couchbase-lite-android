@@ -38,6 +38,7 @@ import com.couchbase.lite.mockserver.MockRevsDiff;
 import com.couchbase.lite.mockserver.MockSessionGet;
 import com.couchbase.lite.mockserver.SmartMockResponse;
 import com.couchbase.lite.mockserver.WrappedSmartMockResponse;
+import com.couchbase.lite.support.CouchbaseLiteHttpClientFactory;
 import com.couchbase.lite.support.HttpClientFactory;
 import com.couchbase.lite.support.RemoteRequestRetry;
 import com.couchbase.lite.util.Log;
@@ -53,9 +54,11 @@ import org.apache.http.HttpResponse;
 import org.apache.http.client.CookieStore;
 import org.apache.http.client.HttpClient;
 import org.apache.http.client.HttpResponseException;
+import org.apache.http.client.methods.HttpGet;
 import org.apache.http.client.methods.HttpPost;
 import org.apache.http.client.methods.HttpPut;
 import org.apache.http.client.methods.HttpUriRequest;
+import org.apache.http.conn.ClientConnectionManager;
 import org.apache.http.cookie.Cookie;
 import org.apache.http.entity.mime.MultipartEntity;
 
@@ -842,24 +845,21 @@ public class ReplicationTest extends LiteTestCase {
      * Make sure that if a continuous pull gets an error
      * pulling a doc, it will keep retrying it rather than giving up right away.
      *
-     * See issue #299
+     * - start continuous pull
+     * - tell mockwebserver to changes feed with docA, with 503 error
+     * - wait until puller makes request to _changes feed
+     * - set _changes feed to block for a long time
+     * - wait until puller tries to get docA num_retries number of times
+     * - assert that puller tries AGAIN to get docA num_retries number of times
+     * - done
+     *
+     * https://github.com/couchbase/couchbase-lite-java-core/issues/299
      */
     public void testContinuousPullRetry() throws Exception {
 
-        // start continuous pull
+        RemoteRequestRetry.RETRY_DELAY_MS = 5;  // speed up test execution
 
-        // tell mockwebserver to changes feed with docA, with 503 error
-
-        // wait until puller makes request to _changes feed
-
-        // set _changes feed to block for a long time
-
-        // wait until puller tries to get docA num_retries number of times
-
-        // assert that puller tries AGAIN to get docA num_retries number of times
-
-        // done
-
+        ReplicationInternal.FAILED_REVISION_RETRY_INITIAL_DELAY_MS = 500;  // speed up test execution
 
         // create mockwebserver and custom dispatcher
         MockDispatcher dispatcher = new MockDispatcher();
@@ -907,11 +907,33 @@ public class ReplicationTest extends LiteTestCase {
         pullReplication.setContinuous(true);
         pullReplication.start();
 
+        // wait until puller tries to get docA num_retries number of times -- do this twice
+        // TODO: it's using RemoteMultipartDownloaderRequest, which currently do any retries.
+        // TODO: RemoteMultipartDownloaderRequest should be fixed to do retries, and this
+        // TODO: test should be updated to account for those retries
+        for (int i=0; i<2; i++) {
+
+            RecordedRequest request = dispatcher.takeRequestBlocking(mockDoc1.getDocPathRegex());
+            assertNotNull(request);
+            dispatcher.takeRecordedResponseBlocking(request);
+
+            // HttpClient httpClient = new CouchbaseLiteHttpClientFactory(null).getHttpClient();
+            // HttpGet req = new HttpGet(server.getUrl("/db").toExternalForm());
+            // HttpResponse response = httpClient.execute(req);
+            // Log.d(TAG, "response: " + response);
+
+        }
+
+
+        stopReplication(pullReplication);
+        server.shutdown();
 
 
 
 
-        Thread.sleep(60 * 1000);
+
+
+
 
 
     }
