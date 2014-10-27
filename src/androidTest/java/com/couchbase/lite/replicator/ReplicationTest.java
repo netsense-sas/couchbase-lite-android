@@ -930,12 +930,6 @@ public class ReplicationTest extends LiteTestCase {
 
 
 
-
-
-
-
-
-
     }
 
     /**
@@ -946,6 +940,10 @@ public class ReplicationTest extends LiteTestCase {
      *
      */
     public void testContinuousPushRetry() throws Exception {
+
+
+        // TODO: this only tests certain code paths!  eg, only tests _bulk_docs, but
+        // TODO: what if it doesn't use _bulk_docs?
 
         RemoteRequestRetry.RETRY_DELAY_MS = 500; // speed up test execution
 
@@ -994,7 +992,6 @@ public class ReplicationTest extends LiteTestCase {
         // An initial attempt (1) plus the number of times it retries
         int numAttemptsTotal = 1 + ReplicationInternal.MAX_RETRIES_FAILED_REVISIONS;
 
-        int numBulkDocsRequestsSeen = 0;
         for (int i=0; i < numAttemptsTotal; i++) {
             // we should expect to at least see numAttempts attempts at doing POST to _bulk_docs
             int remoteRequestRetryAttempts = 1 + RemoteRequestRetry.MAX_RETRIES;
@@ -1002,7 +999,6 @@ public class ReplicationTest extends LiteTestCase {
                 RecordedRequest request = dispatcher.takeRequestBlocking(MockHelper.PATH_REGEX_BULK_DOCS);
                 assertNotNull(request);
                 dispatcher.takeRecordedResponseBlocking(request);
-                numBulkDocsRequestsSeen += 1;
             }
         }
 
@@ -1013,9 +1009,23 @@ public class ReplicationTest extends LiteTestCase {
         RecordedRequest request = dispatcher.takeRequest(MockHelper.PATH_REGEX_BULK_DOCS);
         assertNull(request);
 
-        // todo: go offline and go online again, and make sure it retries again
+        // if the replication is put offline and back online due to network listener
+        // events, then it should try pushing the doc again, with the same
+        // number of retries as before
+        replication.goOffline();
+        replication.goOnline();
 
 
+        int numFailedRetryAttempts = ReplicationInternal.MAX_RETRIES_FAILED_REVISIONS;
+        for (int i=0; i < numFailedRetryAttempts; i++) {
+            // we should expect to at least see numAttempts attempts at doing POST to _bulk_docs
+            int remoteRequestRetryAttempts = 1 + RemoteRequestRetry.MAX_RETRIES;
+            for (int j=0; j < remoteRequestRetryAttempts; j++) {
+                request = dispatcher.takeRequestBlocking(MockHelper.PATH_REGEX_BULK_DOCS);
+                assertNotNull(request);
+                dispatcher.takeRecordedResponseBlocking(request);
+            }
+        }
 
         Log.d(TAG, "Stopping replication");
         stopReplication(replication);
