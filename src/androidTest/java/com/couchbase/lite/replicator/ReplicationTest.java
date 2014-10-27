@@ -991,24 +991,31 @@ public class ReplicationTest extends LiteTestCase {
         // create a doc in local db
         Document doc1 = createDocumentForPushReplication("doc1", null, null);
 
-        // we should expect to at least see numAttempts attempts at doing POST to _bulk_docs
-        for (int i=0; i < RemoteRequestRetry.MAX_RETRIES; i++) {
-            RecordedRequest request = dispatcher.takeRequestBlocking(MockHelper.PATH_REGEX_BULK_DOCS);
-            assertNotNull(request);
-            dispatcher.takeRecordedResponseBlocking(request);
+        // An initial attempt (1) plus the number of times it retries
+        int numAttemptsTotal = 1 + ReplicationInternal.MAX_RETRIES_FAILED_REVISIONS;
+
+        int numBulkDocsRequestsSeen = 0;
+        for (int i=0; i < numAttemptsTotal; i++) {
+            // we should expect to at least see numAttempts attempts at doing POST to _bulk_docs
+            int remoteRequestRetryAttempts = 1 + RemoteRequestRetry.MAX_RETRIES;
+            for (int j=0; j < remoteRequestRetryAttempts; j++) {
+                RecordedRequest request = dispatcher.takeRequestBlocking(MockHelper.PATH_REGEX_BULK_DOCS);
+                assertNotNull(request);
+                dispatcher.takeRecordedResponseBlocking(request);
+                numBulkDocsRequestsSeen += 1;
+            }
         }
 
-        // TODO: test fails here, because there's nothing to cause it to retry after the
-        // TODO: request does it's retry attempt.  Eg, continuous replicator needs to keep
-        // TODO: sending new requests
-        // but it shouldn't give up there, it should keep retrying, so we should expect to
-        // see at least one more request (probably lots more, but let's just wait for one)
-        // we should expect to at least see numAttempts attempts at doing POST to _bulk_docs
-        for (int i=0; i < RemoteRequestRetry.MAX_RETRIES; i++) {
-            RecordedRequest request = dispatcher.takeRequestBlocking(MockHelper.PATH_REGEX_BULK_DOCS);
-            assertNotNull(request);
-            dispatcher.takeRecordedResponseBlocking(request);
-        }
+        // sleep for a while to give a chance to (hopefully not) retry again
+        Thread.sleep(ReplicationInternal.FAILED_REVISION_RETRY_INITIAL_DELAY_MS * (ReplicationInternal.MAX_RETRIES_FAILED_REVISIONS + 1));
+
+        // since the retries should be exhausted by now, we shouldn't see any more retry attempts
+        RecordedRequest request = dispatcher.takeRequest(MockHelper.PATH_REGEX_BULK_DOCS);
+        assertNull(request);
+
+        // todo: go offline and go online again, and make sure it retries again
+
+
 
         Log.d(TAG, "Stopping replication");
         stopReplication(replication);
