@@ -3228,17 +3228,65 @@ public class ReplicationTest extends LiteTestCase {
      * Spotted in https://github.com/couchbase/couchbase-lite-java-core/issues/313
      * But there is another ticket that is linked off 313
      */
-    public void testBulkDocsTooSmall() throws Exception {
+    public void testMockPullBulkDocsSyncGw() throws Exception {
+        mockPullBulkDocs(MockDispatcher.ServerType.SYNC_GW);
+    }
 
+    public void testMockPullBulkDocsCouchDb() throws Exception {
+        mockPullBulkDocs(MockDispatcher.ServerType.COUCHDB);
+    }
 
-        int numMockDocsToServe = 0;
+    public void mockPullBulkDocs(MockDispatcher.ServerType serverType) throws Exception {
+
+        int numMockDocsToServe = 200;
+
+        // create mockwebserver and custom dispatcher
         MockDispatcher dispatcher = new MockDispatcher();
-        MockWebServer server = MockHelper.getPreloadedPullTargetMockCouchDB(dispatcher, numMockDocsToServe, 1);
-        dispatcher.setServerType(MockDispatcher.ServerType.SYNC_GW);
-        server.setDispatcher(dispatcher);
+        MockWebServer server = MockHelper.getMockWebServer(dispatcher);
+        dispatcher.setServerType(serverType);
+
+        // mock documents to be pulled
+        List<MockDocumentGet.MockDocument> mockDocs = MockHelper.getMockDocuments(numMockDocsToServe);
+
+        // respond to all GET (responds with 404) and PUT Checkpoint requests
+        MockCheckpointPut mockCheckpointPut = new MockCheckpointPut();
+        mockCheckpointPut.setSticky(true);
+        dispatcher.enqueueResponse(MockHelper.PATH_REGEX_CHECKPOINT, mockCheckpointPut);
+
+        // _changes response
+        MockChangesFeed mockChangesFeed = new MockChangesFeed();
+        for (MockDocumentGet.MockDocument mockDocument : mockDocs) {
+            mockChangesFeed.add(new MockChangesFeed.MockChangedDoc(mockDocument));
+        }
+        dispatcher.enqueueResponse(MockHelper.PATH_REGEX_CHANGES, mockChangesFeed.generateMockResponse());
+
+        // individual doc responses (expecting it to call _bulk_docs, but just in case)
+        for (MockDocumentGet.MockDocument mockDocument : mockDocs) {
+            MockDocumentGet mockDocumentGet = new MockDocumentGet(mockDocument);
+            dispatcher.enqueueResponse(mockDocument.getDocPathRegex(), mockDocumentGet.generateMockResponse());
+
+        }
+
+        // _bulk_get response
+        MockDocumentBulkGet mockBulkGet = new MockDocumentBulkGet();
+        for (MockDocumentGet.MockDocument mockDocument : mockDocs) {
+            mockBulkGet.addDocument(mockDocument);
+        }
+        dispatcher.enqueueResponse(MockHelper.PATH_REGEX_BULK_GET, mockBulkGet);
+
+        // start mock server
         server.play();
 
-        final Replication replication = database.createPullReplication(server.getUrl("/db"));
+        // run pull replication
+        Replication pullReplication = database.createPullReplication(server.getUrl("/db"));
+        runReplication(pullReplication);
+        Log.d(TAG, "pullReplication finished");
+
+        // wait until it pushes checkpoint of last doc
+        MockDocumentGet.MockDocument lastDoc = mockDocs.get(mockDocs.size()-1);
+        waitForPutCheckpointRequestWithSequence(dispatcher, lastDoc.getDocSeq());
+
+        server.shutdown();
 
 
     }

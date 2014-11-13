@@ -2,6 +2,7 @@ package com.couchbase.lite.mockserver;
 
 
 import com.couchbase.lite.Manager;
+import com.couchbase.lite.util.Log;
 import com.squareup.okhttp.mockwebserver.MockResponse;
 import com.squareup.okhttp.mockwebserver.RecordedRequest;
 
@@ -89,7 +90,7 @@ public class MockDocumentBulkGet implements SmartMockResponse {
             int i = 0;
             for (Object doc : docs) {
                 Map<String, Object> documentMap = (Map) doc;
-                String docId = (String) documentMap.get("_id");
+                String docId = (String) documentMap.get("id");
                 MockDocumentGet.MockDocument mockDocument = documents.get(docId);
 
                 boolean addEmptyLine = false;

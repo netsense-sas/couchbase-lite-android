@@ -583,7 +583,7 @@ public class LiteTestCase extends LiteTestCaseBase {
         public MockWebServer getMockWebServer() {
             MockWebServer server = MockHelper.getMockWebServer(dispatcher);
 
-            List<MockDocumentGet.MockDocument> mockDocs = getMockDocuments();
+            List<MockDocumentGet.MockDocument> mockDocs = MockHelper.getMockDocuments(numMockDocsToServe);
 
             addCheckpointResponse();
 
