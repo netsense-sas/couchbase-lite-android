@@ -60,6 +60,8 @@ import java.util.Map;
 public class MockDocumentBulkGet implements SmartMockResponse {
 
     private Map<String, MockDocumentGet.MockDocument> documents;
+    private boolean isSticky;
+    private long delayMs;
 
     public MockDocumentBulkGet() {
         this.documents = new HashMap<String, MockDocumentGet.MockDocument>();
@@ -191,12 +193,25 @@ public class MockDocumentBulkGet implements SmartMockResponse {
 
     @Override
     public boolean isSticky() {
-        return false;
+        return this.isSticky;
     }
 
     @Override
     public long delayMs() {
-        return 0;
+        return delayMs;
     }
+
+    public void setSticky(boolean isSticky) {
+        this.isSticky = isSticky;
+    }
+
+    public long getDelayMs() {
+        return delayMs;
+    }
+
+    public void setDelayMs(long delayMs) {
+        this.delayMs = delayMs;
+    }
+
 
 }

@@ -73,6 +73,7 @@ import java.util.LinkedList;
 import java.util.List;
 import java.util.Map;
 import java.util.Queue;
+import java.util.concurrent.BlockingQueue;
 import java.util.concurrent.CountDownLatch;
 import java.util.concurrent.TimeUnit;
 import java.util.concurrent.atomic.AtomicInteger;
@@ -3272,6 +3273,7 @@ public class ReplicationTest extends LiteTestCase {
         for (MockDocumentGet.MockDocument mockDocument : mockDocs) {
             mockBulkGet.addDocument(mockDocument);
         }
+        mockBulkGet.setSticky(true);
         dispatcher.enqueueResponse(MockHelper.PATH_REGEX_BULK_GET, mockBulkGet);
 
         // start mock server
@@ -3280,11 +3282,20 @@ public class ReplicationTest extends LiteTestCase {
         // run pull replication
         Replication pullReplication = database.createPullReplication(server.getUrl("/db"));
         runReplication(pullReplication);
+        assertTrue(pullReplication.getLastError() == null);
         Log.d(TAG, "pullReplication finished");
 
         // wait until it pushes checkpoint of last doc
         MockDocumentGet.MockDocument lastDoc = mockDocs.get(mockDocs.size()-1);
         waitForPutCheckpointRequestWithSequence(dispatcher, lastDoc.getDocSeq());
+
+        // dump out the outgoing requests
+        BlockingQueue<RecordedRequest> bulkGetRequests = dispatcher.getRequestQueueSnapshot(MockHelper.PATH_REGEX_BULK_GET);
+        Iterator<RecordedRequest> iterator = bulkGetRequests.iterator();
+        while (iterator.hasNext()) {
+            RecordedRequest bulkGetRequest = iterator.next();
+            Log.d(TAG, "bulk get request: %s", bulkGetRequest);
+        }
 
         server.shutdown();
 
