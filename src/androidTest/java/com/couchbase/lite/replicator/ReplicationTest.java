@@ -387,10 +387,6 @@ public class ReplicationTest extends LiteTestCase {
         mockBulkGet.addDocument(mockDoc1);
         mockBulkGet.addDocument(mockDoc2);
         dispatcher.enqueueResponse(MockHelper.PATH_REGEX_BULK_GET, mockBulkGet);
-        /*MockResponse mockResponse = mockBulkGet.generateMockResponse(null);
-        byte[] body = mockResponse.getBody();
-        String bodyString = new String(body);
-        Log.d(TAG, "bodyString: %s", bodyString);*/
 
         // respond to all PUT Checkpoint requests
         MockCheckpointPut mockCheckpointPut = new MockCheckpointPut();
@@ -3225,6 +3221,25 @@ public class ReplicationTest extends LiteTestCase {
 
         stopReplication(pullReplication);
         server.shutdown();
+
+    }
+
+    /**
+     * Spotted in https://github.com/couchbase/couchbase-lite-java-core/issues/313
+     * But there is another ticket that is linked off 313
+     */
+    public void testBulkDocsTooSmall() throws Exception {
+
+
+        int numMockDocsToServe = 0;
+        MockDispatcher dispatcher = new MockDispatcher();
+        MockWebServer server = MockHelper.getPreloadedPullTargetMockCouchDB(dispatcher, numMockDocsToServe, 1);
+        dispatcher.setServerType(MockDispatcher.ServerType.SYNC_GW);
+        server.setDispatcher(dispatcher);
+        server.play();
+
+        final Replication replication = database.createPullReplication(server.getUrl("/db"));
+
 
     }
 
