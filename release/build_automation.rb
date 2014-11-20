@@ -1,6 +1,7 @@
-
 require 'fileutils'
 
+
+#see upload_android_artifacts.rb
 def uploadArchives() 
 
   puts ".................................couchbase-lite-java-core"
@@ -37,18 +38,8 @@ def clean()
 
 end
 
-def buildCode() 
-  cmd = "./gradlew assemble"
-  puts cmd
-  build_result = %x( #{cmd} )
-  puts build_result
-  # check if the build worked 
-  if ($?.exitstatus != 0) 
-    puts "Build error, aborting"
-    exit($?.exitstatus)
-  end
-end
 
+#see build_android.rb
 def build() 
   # make sure we are in the correct place
   assertPresentInCurrentDirectory(["settings.gradle"])
@@ -79,6 +70,20 @@ def assertPresentInCurrentDirectory(file_list)
 
 end
 
+def buildCode()
+  cmd = "./gradlew assemble"
+  puts cmd
+  build_result = %x( #{cmd} )
+  puts build_result
+  # check if the build worked
+  if ($?.exitstatus != 0)
+    puts "Build error, aborting"
+    exit($?.exitstatus)
+  end
+end
+
+
+
 def runCommand(cmd)
   puts cmd 
   result = %x( #{cmd} )
@@ -96,4 +101,3 @@ def runCommandCheckError(cmd)
   end
 
 end
-
