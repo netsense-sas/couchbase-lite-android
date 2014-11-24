@@ -1,4 +1,4 @@
-
+#!/bin/sh
 
 # usage: pass in the name of the avd, eg:
 # ./start_android_emulator 3.7WVGA

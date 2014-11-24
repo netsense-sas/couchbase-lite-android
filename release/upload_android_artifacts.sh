@@ -1,28 +1,10 @@
-source build_automation.rb
+#!/bin/sh
+: ${MAVEN_UPLOAD_VERSION:?"Need to set 'MAVEN_UPLOAD_VERSION' non-empty"}
+: ${MAVEN_UPLOAD_USERNAME:?"Need to set MAVEN_UPLOAD_USERNAME non-empty"}
+: ${MAVEN_UPLOAD_PASSWORD:?"Need to set MAVEN_UPLOAD_PASSWORD non-empty"}
+: ${MAVEN_UPLOAD_REPO_URL:?"Need to set MAVEN_UPLOAD_REPO_URL non-empty"}
 
-if [ -z "MAVEN_UPLOAD_VERSION" ];
-then
-	echo "Need do set ${MAVEN_UPLOAD_VERSION}";
-        exit 11
-fi
-
-if [ -z "MAVEN_UPLOAD_USERNAME" ];
-then
-	echo "Need do set ${MAVEN_UPLOAD_USERNAME}";
-        exit 22
-fi
-
-if [ -z "MAVEN_UPLOAD_PASSWORD" ];
-then
-	echo "Need do set ${MAVEN_UPLOAD_PASSWORD}";
-        exit 33
-fi
-
-if [ -z "MAVEN_UPLOAD_REPO_URL" ];
-then
-	echo "Need do set ${MAVEN_UPLOAD_REPO_URL}";
-        exit 44
-fi
-
-ruby -r "./build_automation.rb" -e "uploadArchives"
-
+#at first build all projects
+./gradlew :libraries:couchbase-lite-java-core:build && ./gradlew :build -DbuildAndroidWithArtifacts &&
+#then upload artifacts
+./gradlew :libraries:couchbase-lite-java-core:uploadArchivesWrapper && ./gradlew :uploadArchivesWrapper -DbuildAndroidWithArtifacts
