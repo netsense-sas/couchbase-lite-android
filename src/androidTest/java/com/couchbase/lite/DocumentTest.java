@@ -1,8 +1,12 @@
 package com.couchbase.lite;
 
 import com.couchbase.lite.internal.RevisionInternal;
+import com.couchbase.lite.util.Log;
 
 import junit.framework.Assert;
+
+import org.codehaus.jackson.annotate.JsonIgnoreProperties;
+import org.codehaus.jackson.map.ObjectMapper;
 
 import java.util.Arrays;
 import java.util.EnumSet;
@@ -233,6 +237,65 @@ public class DocumentTest extends LiteTestCase {
 
         nestedProps.put("version", "changed");
         assertEquals("original", ((Map) doc.getProperty("nested")).get("version"));
+    }
+
+    @JsonIgnoreProperties(ignoreUnknown = true)
+    static public class Foo {
+        private String bar;
+
+        public Foo() {
+        }
+
+        public String getBar() {
+            return bar;
+        }
+
+        public void setBar(String bar) {
+            this.bar = bar;
+        }
+    }
+
+    /**
+     * Assert that if you add a
+     * @throws Exception
+     */
+    public void testNonPrimitiveTypesInDocument() throws Exception {
+
+        Object fooProperty;
+        Map<String, Object> props = new HashMap<String, Object>();
+
+        Foo foo = new Foo();
+        foo.setBar("basic");
+
+        props.put("foo", foo);
+        Document doc = createDocumentWithProperties(database, props);
+        fooProperty = doc.getProperties().get("foo");
+        assertTrue(fooProperty instanceof Map);
+        assertFalse(fooProperty instanceof Foo);
+
+        Document fetched = database.getDocument(doc.getId());
+        fooProperty = fetched.getProperties().get("foo");
+        assertTrue(fooProperty instanceof Map);
+        assertFalse(fooProperty instanceof Foo);
+
+        ObjectMapper mapper = new ObjectMapper();
+        Foo fooResult = mapper.convertValue(fooProperty, Foo.class);
+        assertEquals(foo.bar, fooResult.bar);
+
+    }
+
+
+    public void testDocCustomID() throws Exception {
+
+        Document document = database.getDocument("my_custom_id");
+        Map<String, Object> properties = new HashMap<String, Object>();
+        properties.put("foo", "bar");
+        document.putProperties(properties);
+
+        Document documentFetched = database.getDocument("my_custom_id");
+        assertEquals("my_custom_id", documentFetched.getId());
+        assertEquals("bar", documentFetched.getProperties().get("foo"));
+
     }
 
 }

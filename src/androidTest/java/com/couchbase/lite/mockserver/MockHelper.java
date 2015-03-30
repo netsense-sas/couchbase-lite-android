@@ -25,6 +25,7 @@ public class MockHelper {
     public static final String PATH_REGEX_REVS_DIFF = "/db/_revs_diff.*";
     public static final String PATH_REGEX_BULK_DOCS = "/db/_bulk_docs.*";
     public static final String PATH_REGEX_SESSION = "/db/_session.*";
+    public static final String PATH_REGEX_SESSION_COUCHDB = "/_session.*";
     public static final String PATH_REGEX_FACEBOOK_AUTH = "/db/_facebook.*";
     public static final String PATH_REGEX_BULK_GET = "/db/_bulk_get.*";
 
@@ -121,6 +122,24 @@ public class MockHelper {
         }
 
 
+    }
+
+    public static List<MockDocumentGet.MockDocument> getMockDocuments(int numDocs) {
+        List<MockDocumentGet.MockDocument> mockDocs = new ArrayList<MockDocumentGet.MockDocument>();
+        for (int i=0; i<numDocs; i++) {
+
+            String docId = String.format("doc%s", i);
+            String revIdHash = Misc.TDCreateUUID().substring(0, 3);
+            String revId = String.format("1-%s", revIdHash);
+            int seq = i;
+
+            // mock documents to be pulled
+            MockDocumentGet.MockDocument mockDoc = new MockDocumentGet.MockDocument(docId, revId, seq);
+            mockDoc.setJsonMap(MockHelper.generateRandomJsonMap());
+            mockDocs.add(mockDoc);
+
+        }
+        return mockDocs;
     }
 
 

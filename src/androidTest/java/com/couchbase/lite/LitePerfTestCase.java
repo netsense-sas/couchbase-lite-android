@@ -39,7 +39,7 @@ import java.util.concurrent.Future;
 import java.util.concurrent.TimeUnit;
 import java.io.FileOutputStream;
 
-public abstract class LitePerfTestCase extends LiteTestCase {
+public class LitePerfTestCase extends LiteTestCase {
 
     public static final String TAG = "summary";
     JSONObject perfConfig, envConfig;
@@ -54,6 +54,8 @@ public abstract class LitePerfTestCase extends LiteTestCase {
     @Override
     protected void setUp() throws Exception {
         Log.v(TAG, "setUp in LitePerfTestCase");
+        super.setUp();
+        Log.enableLogging("PerformanceStats",Log.VERBOSE);
         loadCustomProperties();
         loadConfigs();
         runMultiple();
