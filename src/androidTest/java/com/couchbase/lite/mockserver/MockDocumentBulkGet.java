@@ -1,13 +1,10 @@
 package com.couchbase.lite.mockserver;
 
 
-import com.couchbase.lite.Manager;
-import com.couchbase.lite.util.Log;
 import com.squareup.okhttp.mockwebserver.MockResponse;
 import com.squareup.okhttp.mockwebserver.RecordedRequest;
 
 import java.io.ByteArrayOutputStream;
-import java.util.ArrayList;
 import java.util.HashMap;
 import java.util.List;
 import java.util.Map;
@@ -51,7 +48,7 @@ import java.util.Map;
     Content-Type: image/png
     Content-Disposition: attachment; filename="attachment.png"
 
-    PNG
+    PNG
     --aff16d5e5921568ad8fab41b9ec3c2dc86390da4f9dbbc2cec7bf5e2655f--
     --77d6fa0c04b501832f5dcf93d515cb73f39fa74104b01bc5a5b24dd57f4a--
     ...
@@ -69,11 +66,10 @@ public class MockDocumentBulkGet implements SmartMockResponse {
 
     @Override
     public MockResponse generateMockResponse(RecordedRequest request) {
-
         try {
-
-            Map <String, Object> bulkDocsJson = Manager.getObjectMapper().readValue(request.getUtf8Body(), Map.class);
-            List docs = (List) bulkDocsJson.get("docs");
+            byte[] body = MockHelper.getUncompressedBody(request);
+            Map<String, Object> jsonMap = MockHelper.getJsonMapFromRequest(body);
+            List docs = (List)jsonMap.get("docs");
 
             MockResponse mockResponse = new MockResponse();
 

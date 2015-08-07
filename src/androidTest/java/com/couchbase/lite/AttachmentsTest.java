@@ -30,8 +30,12 @@ import junit.framework.Assert;
 import org.apache.commons.io.IOUtils;
 
 import java.io.ByteArrayInputStream;
+import java.io.ByteArrayOutputStream;
+import java.io.File;
+import java.io.FileInputStream;
 import java.io.IOException;
 import java.io.InputStream;
+import java.net.URL;
 import java.nio.charset.Charset;
 import java.util.Arrays;
 import java.util.EnumSet;
@@ -40,6 +44,7 @@ import java.util.HashSet;
 import java.util.List;
 import java.util.Map;
 import java.util.Set;
+import java.util.zip.GZIPOutputStream;
 
 public class AttachmentsTest extends LiteTestCase {
 
@@ -59,7 +64,7 @@ public class AttachmentsTest extends LiteTestCase {
         Map<String, Object> rev1Properties = new HashMap<String, Object>();
         rev1Properties.put("foo", 1);
         rev1Properties.put("bar", false);
-        RevisionInternal rev1 = database.putRevision(new RevisionInternal(rev1Properties, database), null, false, status);
+        RevisionInternal rev1 = database.putRevision(new RevisionInternal(rev1Properties), null, false, status);
 
         Assert.assertEquals(Status.CREATED, status.getCode());
 
@@ -118,7 +123,7 @@ public class AttachmentsTest extends LiteTestCase {
         rev2Properties.put("_id", rev1.getDocId());
         rev2Properties.put("foo", 2);
         rev2Properties.put("bazz", false);
-        RevisionInternal rev2 = database.putRevision(new RevisionInternal(rev2Properties, database), rev1.getRevId(), false, status);
+        RevisionInternal rev2 = database.putRevision(new RevisionInternal(rev2Properties), rev1.getRevId(), false, status);
         Assert.assertEquals(Status.CREATED, status.getCode());
 
         database.copyAttachmentNamedFromSequenceToSequence(testAttachmentName, rev1.getSequence(), rev2.getSequence());
@@ -128,7 +133,7 @@ public class AttachmentsTest extends LiteTestCase {
         rev3Properties.put("_id", rev2.getDocId());
         rev3Properties.put("foo", 2);
         rev3Properties.put("bazz", false);
-        RevisionInternal rev3 = database.putRevision(new RevisionInternal(rev3Properties, database), rev2.getRevId(), false, status);
+        RevisionInternal rev3 = database.putRevision(new RevisionInternal(rev3Properties), rev2.getRevId(), false, status);
         Assert.assertEquals(Status.CREATED, status.getCode());
 
         byte[] attach2 = "<html>And this is attach2</html>".getBytes();
@@ -192,7 +197,7 @@ public class AttachmentsTest extends LiteTestCase {
         Map<String, Object> rev1Properties = new HashMap<String, Object>();
         rev1Properties.put("foo", 1);
         rev1Properties.put("bar", false);
-        RevisionInternal rev1 = database.putRevision(new RevisionInternal(rev1Properties, database), null, false, status);
+        RevisionInternal rev1 = database.putRevision(new RevisionInternal(rev1Properties), null, false, status);
 
         Assert.assertEquals(Status.CREATED, status.getCode());
 
@@ -246,7 +251,7 @@ public class AttachmentsTest extends LiteTestCase {
         rev2Properties.put("_id", rev1WithAttachmentsProperties.get("_id"));
         rev2Properties.put("foo", 2);
 
-        RevisionInternal newRev = new RevisionInternal(rev2Properties, database);
+        RevisionInternal newRev = new RevisionInternal(rev2Properties);
         RevisionInternal rev2 = database.putRevision(newRev, rev1WithAttachments.getRevId(), false, status);
         Assert.assertEquals(Status.CREATED, status.getCode());
 
@@ -269,7 +274,7 @@ public class AttachmentsTest extends LiteTestCase {
         rev3Properties.put("foo", 3);
         rev3Properties.put("baz", false);
 
-        RevisionInternal rev3 = new RevisionInternal(rev3Properties, database);
+        RevisionInternal rev3 = new RevisionInternal(rev3Properties);
         rev3 = database.putRevision(rev3, rev2.getRevId(), false, status);
         Assert.assertEquals(Status.CREATED, status.getCode());
 
@@ -299,7 +304,7 @@ public class AttachmentsTest extends LiteTestCase {
     }
 
     @SuppressWarnings("unchecked")
-    public void testPutAttachment() throws CouchbaseLiteException {
+    public void testPutAttachment() throws CouchbaseLiteException, IOException {
 
         String testAttachmentName = "test_attachment";
         BlobStore attachments = database.getAttachments();
@@ -320,7 +325,7 @@ public class AttachmentsTest extends LiteTestCase {
         properties.put("bar", false);
         properties.put("_attachments", attachmentDict);
 
-        RevisionInternal rev1 = database.putRevision(new RevisionInternal(properties, database), null, false);
+        RevisionInternal rev1 = database.putRevision(new RevisionInternal(properties), null, false);
 
         // Examine the attachment store:
         Assert.assertEquals(1, attachments.count());
@@ -422,8 +427,20 @@ public class AttachmentsTest extends LiteTestCase {
         database.close();
     }
 
-    public void testStreamAttachmentBlobStoreWriter() {
+    public void testAddAndGetAttachment() throws CouchbaseLiteException {
+        Document document = database.createDocument();
+        UnsavedRevision rev = document.createRevision();
 
+        byte[] attach = "This is the body of attach".getBytes();;
+        InputStream in = new ByteArrayInputStream(attach);
+        rev.setAttachment("attach", "text/plain", in);
+
+        assertNotNull(rev.getAttachment("attach"));
+        assertEquals(1, rev.getAttachments().size());
+        rev.save();
+    }
+
+    public void testStreamAttachmentBlobStoreWriter() throws IOException {
 
         BlobStore attachments = database.getAttachments();
 
@@ -778,5 +795,181 @@ public class AttachmentsTest extends LiteTestCase {
     }
 
 
+    public void testGetContentURL() throws Exception {
 
+        String attachmentName = "index.html";
+        String content  = "This is a test attachment!";
+
+        Document doc = createDocWithAttachment(database, attachmentName, content);
+        Attachment attachment = doc.getCurrentRevision().getAttachment(attachmentName);
+        URL url = attachment.getContentURL();
+        assertNotNull(url);
+        FileInputStream fis = new FileInputStream(new File(url.toURI()));
+        byte[] buffer = new byte[1024];
+        int len = fis.read(buffer);
+        assertTrue(len != -1);
+        String content2 = new String(buffer, 0, len);
+        assertEquals(content, content2);
+        fis.close();
+    }
+
+    public void testAttachmentThrowIoException() {
+        InputStream in = new InputStream() {
+            @Override
+            public int read() throws IOException {
+                throw new IOException();
+            }
+        };
+
+        Document doc = database.createDocument();
+        UnsavedRevision rev = doc.createRevision();
+        rev.setAttachment("ioe_attach", "text/plain", in);
+
+        try {
+            rev.save();
+            fail("Saved revision with corrupt attachment");
+        } catch (CouchbaseLiteException expected) {
+            assertEquals(Status.STATUS_ATTACHMENT_ERROR, expected.getCBLStatus().getCode());
+        }
+    }
+
+    public void testGetAttachmentFromUnsavedRevision() throws Exception {
+        String attachmentName = "index.html";
+        String content  = "This is a test attachment!";
+
+        Document doc = createDocWithAttachment(database, attachmentName, content);
+        UnsavedRevision rev = doc.createRevision();
+        Attachment attachment = rev.getAttachment(attachmentName);
+        assertNotNull(attachment);
+
+        InputStream in = attachment.getContent();
+        assertNotNull(in);
+        assertEquals(IOUtils.toString(in, "UTF-8"), content);
+        in.close();
+    }
+
+    public void testGetAttachmentFromUnsavedRevisionWithMultipleRevisions() throws Exception {
+        String attachmentName = "index.html";
+        String content = "This is a test attachment!";
+
+        Document doc = createDocWithAttachment(database, attachmentName, content);
+
+        // added extra two revisions to make sure in case the revision that has an attachment is
+        // more than two generation older than current.
+        doc.createRevision().save();
+        doc.createRevision().save();
+
+        UnsavedRevision rev = doc.createRevision();
+        Attachment attachment = rev.getAttachment(attachmentName);
+        assertNotNull(attachment);
+
+        InputStream in = attachment.getContent();
+        assertNotNull(in);
+        assertEquals(IOUtils.toString(in, "UTF-8"), content);
+        in.close();
+    }
+
+    public void testGzippedAttachments() throws Exception {
+        String attachmentName = "index.html";
+        byte content[]  = "This is a test attachment!".getBytes("UTF-8");
+
+        ByteArrayOutputStream byteOut = new ByteArrayOutputStream();
+        GZIPOutputStream gzipOut = new GZIPOutputStream(byteOut);
+        gzipOut.write(content);
+        gzipOut.close();
+        byte contentGzipped[] = byteOut.toByteArray();
+
+        Document doc = database.createDocument();
+        UnsavedRevision rev = doc.createRevision();
+        rev.setAttachment(attachmentName, "text/html", new ByteArrayInputStream(contentGzipped));
+        rev.save();
+
+        SavedRevision savedRev = doc.getCurrentRevision();
+        Attachment attachment = savedRev.getAttachment(attachmentName);
+
+        // As far as revision users are concerned their data is not gzipped
+        InputStream in = attachment.getContent();
+        assertNotNull(in);
+        assertTrue(Arrays.equals(content, IOUtils.toByteArray(in)));
+        in.close();
+
+        // But the it may be gzipped encoded internally
+        long sequence = savedRev.getSequence();
+        attachment = database.getAttachmentForSequence(sequence, attachmentName);
+        assertTrue(attachment.getGZipped());
+        in = attachment.getContent();
+        assertNotNull(in);
+        assertTrue(Arrays.equals(contentGzipped, IOUtils.toByteArray(in)));
+        in.close();
+    }
+
+    // Store Gzipped attachment by Base64 encoding
+    public void testGzippedAttachmentByBase64() throws Exception {
+        String attachmentName = "attachment.png";
+
+        // 1. store attachment with doc
+
+        // 1.a load attachment data from asset
+        InputStream attachmentStream = getAsset(attachmentName);
+        ByteArrayOutputStream baos = new ByteArrayOutputStream();
+        IOUtils.copy(attachmentStream, baos);
+        baos.close();
+        attachmentStream.close();
+        byte[] bytes = baos.toByteArray();
+
+        // 1.b apply GZIP + Base64
+        String attachmentBase64 = Base64.encodeBytes(bytes, Base64.GZIP);
+
+        // 1.c attachment Map object
+        Map<String, Object> attachmentMap = new HashMap<String, Object>();
+        attachmentMap.put("content_type", "image/png");
+        attachmentMap.put("data", attachmentBase64);
+        attachmentMap.put("encoding", "gzip");
+        attachmentMap.put("length", bytes.length);
+
+        // 1.d attachments Map object
+        Map<String, Object> attachmentsMap = new HashMap<String, Object>();
+        attachmentsMap.put(attachmentName, attachmentMap);
+
+        // 1.e document property Map object
+        Map<String, Object> propsMap = new HashMap<String, Object>();
+        propsMap.put("_attachments", attachmentsMap);
+
+        // 1.f store document into database
+        Document putDoc = database.createDocument();
+        putDoc.putProperties(propsMap);
+        String docId = putDoc.getId();
+
+        // 2. Load attachment from database and compare it with original
+
+        // 2.a load doc and attachment from database
+        Document getDoc = database.getDocument(docId);
+        Attachment attachment = getDoc.getCurrentRevision().getAttachment(attachmentName);
+        assertEquals(bytes.length, attachment.getLength());
+        assertEquals("image/png", attachment.getContentType());
+        assertEquals("gzip", attachment.getMetadata().get("encoding"));
+
+        InputStream is = attachment.getContent();
+        byte[] receivedBytes = getBytesFromInputStream(is);
+        assertEquals(bytes.length, receivedBytes.length);
+        is.close();
+
+        assertTrue(Arrays.equals(bytes, receivedBytes));
+    }
+
+    private static byte[] getBytesFromInputStream(InputStream is) {
+        org.apache.commons.io.output.ByteArrayOutputStream os = new org.apache.commons.io.output.ByteArrayOutputStream();
+        byte[] buffer = new byte[1024];
+        int len = 0;
+        try {
+            while ((len = is.read(buffer)) > 0) {
+                os.write(buffer, 0, len);
+            }
+            os.flush();
+        } catch (IOException e) {
+            Log.e(Log.TAG, "is.read(buffer) or os.flush() error", e);
+            return null;
+        }
+        return os.toByteArray();
+    }
 }

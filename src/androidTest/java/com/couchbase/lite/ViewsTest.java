@@ -24,14 +24,19 @@ import com.couchbase.lite.util.Log;
 
 import junit.framework.Assert;
 
+import java.lang.reflect.Constructor;
+import java.lang.reflect.Field;
+import java.lang.reflect.Modifier;
 import java.util.ArrayList;
 import java.util.Arrays;
+import java.util.Collections;
 import java.util.HashMap;
 import java.util.Iterator;
 import java.util.List;
 import java.util.Map;
 import java.util.concurrent.CountDownLatch;
 import java.util.concurrent.TimeUnit;
+import java.util.concurrent.atomic.AtomicInteger;
 
 
 public class ViewsTest extends LiteTestCase {
@@ -133,7 +138,7 @@ public class ViewsTest extends LiteTestCase {
     }
 
     private RevisionInternal putDoc(Database db, Map<String,Object> props) throws CouchbaseLiteException {
-        RevisionInternal rev = new RevisionInternal(props, db);
+        RevisionInternal rev = new RevisionInternal(props);
         Status status = new Status();
         rev = db.putRevision(rev, null, false, status);
         Assert.assertTrue(status.isSuccessful());
@@ -187,7 +192,7 @@ public class ViewsTest extends LiteTestCase {
         Map<String,Object> dict2 = new HashMap<String,Object>();
         dict2.put("_id", "22222");
         dict2.put("value", "hello");
-        dict2.put("ancestors", new String[] { "11111" });
+        dict2.put("ancestors", new String[]{"11111"});
         result.add(putDoc(db, dict2));
 
         Map<String,Object> dict3 = new HashMap<String,Object>();
@@ -292,7 +297,7 @@ public class ViewsTest extends LiteTestCase {
         view.updateIndex();
 
         // Now add a doc and update a doc:
-        RevisionInternal threeUpdated = new RevisionInternal(rev3.getDocId(), rev3.getRevId(), false, database);
+        RevisionInternal threeUpdated = new RevisionInternal(rev3.getDocId(), rev3.getRevId(), false);
         numTimesMapFunctionInvoked = mapBlock.getNumTimesInvoked();
 
         Map<String,Object> newdict3 = new HashMap<String,Object>();
@@ -313,7 +318,7 @@ public class ViewsTest extends LiteTestCase {
         dict4.put("key", "four");
         RevisionInternal rev4 = putDoc(database, dict4);
 
-        RevisionInternal twoDeleted = new RevisionInternal(rev2.getDocId(), rev2.getRevId(), true, database);
+        RevisionInternal twoDeleted = new RevisionInternal(rev2.getDocId(), rev2.getRevId(), true);
         database.putRevision(twoDeleted, rev2.getRevId(), false, status);
         Assert.assertTrue(status.isSuccessful());
 
@@ -370,10 +375,10 @@ public class ViewsTest extends LiteTestCase {
 
         designDoc.put("_rev", rev1.getRevId());
         designDoc.put("key", "value2a");
-        RevisionInternal rev2a = new RevisionInternal(designDoc, database);
+        RevisionInternal rev2a = new RevisionInternal(designDoc);
         database.putRevision(rev2a, rev1.getRevId(), true);
         designDoc.put("key", "value2b");
-        RevisionInternal rev2b = new RevisionInternal(designDoc, database);
+        RevisionInternal rev2b = new RevisionInternal(designDoc);
         database.putRevision(rev2b, rev1.getRevId(), true);
 
         view.updateIndex();
@@ -518,12 +523,12 @@ public class ViewsTest extends LiteTestCase {
     }
 
     //https://github.com/couchbase/couchbase-lite-android/issues/314
-    public void failingTestViewQueryWithDictSentinel() throws CouchbaseLiteException {
+    public void testViewQueryWithDictSentinel() throws CouchbaseLiteException {
 
         List<String> key1 = new ArrayList<String>();
         key1.add("red");
         key1.add("model1");
-        Map<String,Object> dict1 = new HashMap<String,Object>();
+        Map<String, Object> dict1 = new HashMap<String, Object>();
         dict1.put("id", "11");
         dict1.put("key", key1);
         putDoc(database, dict1);
@@ -531,7 +536,7 @@ public class ViewsTest extends LiteTestCase {
         List<String> key2 = new ArrayList<String>();
         key2.add("red");
         key2.add("model2");
-        Map<String,Object> dict2 = new HashMap<String,Object>();
+        Map<String, Object> dict2 = new HashMap<String, Object>();
         dict2.put("id", "12");
         dict2.put("key", key2);
         putDoc(database, dict2);
@@ -539,7 +544,7 @@ public class ViewsTest extends LiteTestCase {
         List<String> key3 = new ArrayList<String>();
         key3.add("green");
         key3.add("model1");
-        Map<String,Object> dict3 = new HashMap<String,Object>();
+        Map<String, Object> dict3 = new HashMap<String, Object>();
         dict3.put("id", "21");
         dict3.put("key", key3);
         putDoc(database, dict3);
@@ -547,7 +552,7 @@ public class ViewsTest extends LiteTestCase {
         List<String> key4 = new ArrayList<String>();
         key4.add("yellow");
         key4.add("model2");
-        Map<String,Object> dict4 = new HashMap<String,Object>();
+        Map<String, Object> dict4 = new HashMap<String, Object>();
         dict4.put("id", "31");
         dict4.put("key", key4);
         putDoc(database, dict4);
@@ -566,7 +571,6 @@ public class ViewsTest extends LiteTestCase {
         Assert.assertTrue(Arrays.equals(new Object[]{"red", "model2"}, ((LazyJsonArray) rows.get(2).getKey()).toArray()));
         Assert.assertTrue(Arrays.equals(new Object[]{"yellow", "model2"}, ((LazyJsonArray) rows.get(3).getKey()).toArray()));
 
-
         // Start/end key query:
         options = new QueryOptions();
         options.setStartKey("a");
@@ -578,18 +582,19 @@ public class ViewsTest extends LiteTestCase {
         Assert.assertTrue(Arrays.equals(new Object[]{"red", "model2"}, ((LazyJsonArray) rows.get(2).getKey()).toArray()));
 
         // Start/end query without inclusive end:
+        options.setEndKey(Arrays.asList("red", "model1"));
         options.setInclusiveEnd(false);
         rows = view.queryWithOptions(options);
-        Assert.assertEquals(1, rows.size()); //3
+        Assert.assertEquals(1, rows.size()); //1
         Assert.assertTrue(Arrays.equals(new Object[]{"green", "model1"}, ((LazyJsonArray) rows.get(0).getKey()).toArray()));
 
         // Reversed:
+        options = new QueryOptions();
+        options.setStartKey(Arrays.asList("red", new HashMap<String, Object>()));
+        options.setEndKey(Arrays.asList("green", "model1"));
         options.setDescending(true);
-        options.setStartKey("red");
-        options.setEndKey(Arrays.asList("green", new HashMap<String, Object>()));
-        options.setInclusiveEnd(true);
         rows = view.queryWithOptions(options);
-        Assert.assertEquals(3, rows.size()); //0
+        Assert.assertEquals(3, rows.size()); 
         Assert.assertTrue(Arrays.equals(new Object[]{"red", "model2"}, ((LazyJsonArray) rows.get(0).getKey()).toArray()));
         Assert.assertTrue(Arrays.equals(new Object[]{"red", "model1"}, ((LazyJsonArray) rows.get(1).getKey()).toArray()));
         Assert.assertTrue(Arrays.equals(new Object[]{"green", "model1"}, ((LazyJsonArray) rows.get(2).getKey()).toArray()));
@@ -597,7 +602,7 @@ public class ViewsTest extends LiteTestCase {
         // Reversed, no inclusive end:
         options.setInclusiveEnd(false);
         rows = view.queryWithOptions(options);
-        Assert.assertEquals(2, rows.size()); //0
+        Assert.assertEquals(2, rows.size());
         Assert.assertTrue(Arrays.equals(new Object[]{"red", "model2"}, ((LazyJsonArray) rows.get(0).getKey()).toArray()));
         Assert.assertTrue(Arrays.equals(new Object[]{"red", "model1"}, ((LazyJsonArray) rows.get(1).getKey()).toArray()));
 
@@ -611,7 +616,6 @@ public class ViewsTest extends LiteTestCase {
         Assert.assertEquals(2, rows.size());
         Assert.assertTrue(Arrays.equals(new Object[]{"red", "model1"}, ((LazyJsonArray) rows.get(0).getKey()).toArray()));
         Assert.assertTrue(Arrays.equals(new Object[]{"red", "model2"}, ((LazyJsonArray) rows.get(1).getKey()).toArray()));
-
     }
 
 
@@ -784,6 +788,59 @@ public class ViewsTest extends LiteTestCase {
         result.put("total_rows", rows.size());
         result.put("offset", offset);
         return result;
+    }
+
+    /**
+     * TODO: It seems this test is not correct and also LiveQuery is not correctly implemented. Fix this!!
+     *
+     * NOTE: ChangeNotification should not be fired for 0 match query.
+     */
+    public void failingTestAllDocumentsLiveQuery() throws CouchbaseLiteException {
+        final AtomicInteger changeCount = new AtomicInteger();
+
+        Database db = startDatabase();
+        LiveQuery query = db.createAllDocumentsQuery().toLiveQuery();
+        query.setStartKey("1");
+        query.setEndKey("10");
+        query.addChangeListener(new LiveQuery.ChangeListener() {
+            @Override
+            public void changed(LiveQuery.ChangeEvent event) {
+                changeCount.incrementAndGet();
+            }
+        });
+
+        query.start();
+        query.waitForRows();
+        assertNull(query.getLastError());
+        QueryEnumerator rows = query.getRows();
+        assertNotNull(rows);
+        assertEquals(0, rows.getCount());
+
+        // A change event is sent the first time a query finishes loading
+        assertEquals(1, changeCount.get());
+
+        db.getDocument("a").createRevision().save();
+
+        query.waitForRows();
+        // A change event is not sent, if the query results remain the same
+        assertEquals(1, changeCount.get());
+        rows = query.getRows();
+        assertNotNull(rows);
+        assertEquals(0, rows.getCount());
+
+        db.getDocument("1").createRevision().save();
+
+        // The query must update before sending notifications
+        assertEquals(1, changeCount.get());
+        query.waitForRows();
+        assertEquals(2, changeCount.get());
+
+        rows = query.getRows();
+        assertNotNull(rows);
+        assertEquals(1, rows.getCount());
+
+        assertNull(query.getLastError());
+        query.stop();
     }
 
     public void testViewReduce() throws CouchbaseLiteException {
@@ -1241,7 +1298,29 @@ public class ViewsTest extends LiteTestCase {
         Assert.assertEquals(row3.get("key"), rows.get(2).getKey());
         Assert.assertEquals(row3.get("error"), rows.get(2).asJSONDictionary().get("error"));
     }
-    
+
+    /**
+     * https://github.com/couchbase/couchbase-lite-java-core/issues/413
+     */
+    public void testViewGroupedNoReduceWithoutDocs() throws CouchbaseLiteException {
+        View view = database.getView("GroupByType");
+        view.setMap(new Mapper() {
+                        @Override
+                        public void map(Map<String, Object> document, Emitter emitter) {
+                            String type = (String) document.get("type");
+                            if (type != null) {
+                                emitter.emit(type, null);
+                            }
+                        }
+                    }, "1.0"
+        );
+        view.updateIndex();
+        QueryOptions options = new QueryOptions();
+        options.setGroupLevel(1);
+        List<QueryRow> rows = view.queryWithOptions(options);
+        assertEquals(0, rows.size());
+    }
+
     public void testViewGroupedVariableLengthKey() throws CouchbaseLiteException {
         Map<String,Object> docProperties1 = new HashMap<String,Object>();
         docProperties1.put("_id", "H");
@@ -1825,4 +1904,523 @@ public class ViewsTest extends LiteTestCase {
         Assert.assertEquals(Arrays.asList("f", "four"), rows.get(1).getKey());
     }
 
+    public void testAllDocsPrefixMatch() throws CouchbaseLiteException {
+        database.getDocument("aaaaaaa").createRevision().save();
+        database.getDocument("a11zzzzz").createRevision().save();
+        database.getDocument("a七乃又直ந்த").createRevision().save();
+        database.getDocument("A1").createRevision().save();
+        database.getDocument("bcd").createRevision().save();
+        database.getDocument("01234").createRevision().save();
+
+        QueryOptions options = new QueryOptions();
+        options.setPrefixMatchLevel(1);
+        options.setStartKey("a");
+        options.setEndKey("a");
+
+        Map<String, Object> result = database.getAllDocs(options);
+        assertNotNull(result);
+        List<QueryRow> rows = (List<QueryRow>) result.get("rows");
+        assertNotNull(rows);
+
+        // 1 < a < 七 - order is ascending by default
+        assertEquals(3, rows.size());
+        assertEquals("a11zzzzz", rows.get(0).getKey());
+        assertEquals("aaaaaaa", rows.get(1).getKey());
+        assertEquals("a七乃又直ந்த", rows.get(2).getKey());
     }
+
+    /**
+     * in View_Tests.m
+     * - (void) test06_ViewCustomFilter
+     *
+     * https://github.com/couchbase/couchbase-lite-java-core/issues/303
+     */
+    public void testViewCustomFilter() throws Exception {
+        View view = database.getView("vu");
+        view.setMapReduce(new Mapper() {
+            @Override
+            public void map(Map<String, Object> document, Emitter emitter) {
+                emitter.emit(document.get("name"), document.get("skin"));
+            }
+        }, null, "1");
+
+        Map<String,Object> docProperties1 = new HashMap<String,Object>();
+        docProperties1.put("name", "Barry");
+        docProperties1.put("skin", "none");
+        putDoc(database, docProperties1);
+        Map<String,Object> docProperties2 = new HashMap<String,Object>();
+        docProperties2.put("name", "Terry");
+        docProperties2.put("skin", "furry");
+        putDoc(database, docProperties2);
+        Map<String,Object> docProperties3 = new HashMap<String,Object>();
+        docProperties3.put("name", "Wanda");
+        docProperties3.put("skin", "scaly");
+        putDoc(database, docProperties3);
+
+        // match all
+        Query query = view.createQuery();
+        Predicate<QueryRow> postFilterAll = new Predicate<QueryRow>(){
+            public boolean apply(QueryRow type){
+                return true;
+            }
+        };
+        query.setPostFilter(postFilterAll);
+        QueryEnumerator rows = query.run();
+        assertEquals(3, rows.getCount());
+        for(int i = 0; i < rows.getCount(); i++){
+            Log.e(Log.TAG_QUERY, ""+ rows.getRow(i).getKey() + " => " + rows.getRow(i).getValue());
+        }
+        assertEquals(docProperties1.get("name"), rows.getRow(0).getKey());
+        assertEquals(docProperties1.get("skin"), rows.getRow(0).getValue());
+        assertEquals(docProperties2.get("name"), rows.getRow(1).getKey());
+        assertEquals(docProperties2.get("skin"), rows.getRow(1).getValue());
+        assertEquals(docProperties3.get("name"), rows.getRow(2).getKey());
+        assertEquals(docProperties3.get("skin"), rows.getRow(2).getValue());
+
+
+        // match  zero
+        Predicate<QueryRow> postFilterNone = new Predicate<QueryRow>(){
+            public boolean apply(QueryRow type){
+                return false;
+            }
+        };
+        query.setPostFilter(postFilterNone);
+        rows = query.run();
+        assertEquals(0, rows.getCount());
+
+
+        // match two
+        Predicate<QueryRow> postFilter = new Predicate<QueryRow>(){
+            public boolean apply(QueryRow type){
+                if(type.getValue() instanceof String){
+                    String val = (String)type.getValue();
+                    if(val != null && val.endsWith("y")){
+                        return true;
+                    }
+                }
+                return false;
+            }
+        };
+        query.setPostFilter(postFilter);
+        rows = query.run();
+        assertEquals(2, rows.getCount());
+        assertEquals(docProperties2.get("name"), rows.getRow(0).getKey());
+        assertEquals(docProperties2.get("skin"), rows.getRow(0).getValue());
+        assertEquals(docProperties3.get("name"), rows.getRow(1).getKey());
+        assertEquals(docProperties3.get("skin"), rows.getRow(1).getValue());
+    }
+    /**
+     * in View_Tests.m
+     * - (void) test06_AllDocsCustomFilter
+     *
+     * https://github.com/couchbase/couchbase-lite-java-core/issues/303
+     */
+    public void testAllDocsCustomFilter() throws Exception{
+        Map<String,Object> docProperties1 = new HashMap<String,Object>();
+        docProperties1.put("_id", "1");
+        docProperties1.put("name", "Barry");
+        docProperties1.put("skin", "none");
+        putDoc(database, docProperties1);
+        Map<String,Object> docProperties2 = new HashMap<String,Object>();
+        docProperties2.put("_id", "2");
+        docProperties2.put("name", "Terry");
+        docProperties2.put("skin", "furry");
+        putDoc(database, docProperties2);
+        Map<String,Object> docProperties3 = new HashMap<String,Object>();
+        docProperties3.put("_id", "3");
+        docProperties3.put("name", "Wanda");
+        docProperties3.put("skin", "scaly");
+        putDoc(database, docProperties3);
+        database.clearDocumentCache();
+
+        Log.d(TAG, "---- QUERYIN' ----");
+        Query query = database.createAllDocumentsQuery();
+        query.setPostFilter(new Predicate<QueryRow>(){
+            public boolean apply(QueryRow type){
+                Log.e(TAG, "apply()");
+                if(type.getDocument().getProperty("skin") != null && type.getDocument().getProperty("skin") instanceof String) {
+                    String skin = (String) type.getDocument().getProperty("skin");
+                    if(skin.endsWith("y")){
+                        return true;
+                    }
+                }
+                return false;
+            }
+        });
+        QueryEnumerator rows = query.run();
+        assertEquals(2, rows.getCount());
+        assertEquals(docProperties2.get("_id"), rows.getRow(0).getKey());
+        assertEquals(docProperties3.get("_id"), rows.getRow(1).getKey());
+    }
+
+    public void testQueryEnumerationImplementsIterable() {
+        assertTrue(new QueryEnumerator(null, new ArrayList<QueryRow>(), 0) instanceof Iterable);
+    }
+
+    /**
+     * int ViewInternal_Tests.m
+     * - (void) test_ConflictWinner
+     */
+    public void testConflictWinner() throws CouchbaseLiteException {
+        // If a view is re-indexed, and a document in the view has gone into conflict,
+        // rows emitted by the earlier 'losing' revision shouldn't appear in the view.
+        List<RevisionInternal> docs = putDocs(database);
+        RevisionInternal leaf1 = docs.get(1);
+
+        View view = createView(database);
+        view.updateIndex();
+        List<Map<String,Object>> dump = view.dump();
+        Log.v(TAG, "View dump: " + dump);
+        Assert.assertEquals(5, dump.size());
+        Assert.assertEquals("\"five\"", dump.get(0).get("key"));
+        Assert.assertEquals(5, dump.get(0).get("seq"));
+        Assert.assertEquals("\"four\"", dump.get(1).get("key"));
+        Assert.assertEquals(2, dump.get(1).get("seq"));
+        Assert.assertEquals("\"one\"", dump.get(2).get("key"));
+        Assert.assertEquals(3, dump.get(2).get("seq"));
+        Assert.assertEquals("\"three\"", dump.get(3).get("key"));
+        Assert.assertEquals(4, dump.get(3).get("seq"));
+        Assert.assertEquals("\"two\"", dump.get(4).get("key"));
+        Assert.assertEquals(1, dump.get(4).get("seq"));
+
+        // Create a conflict, won by the new revision:
+        Map<String,Object> props = new HashMap<String,Object>();
+        props.put("_id", "44444");
+        props.put("_rev", "1-~~~~~");  // higher revID, will win conflict
+        props.put("key", "40ur");
+        RevisionInternal leaf2 = new RevisionInternal(props);
+        database.forceInsert(leaf2, new ArrayList<String>(), null);
+        Assert.assertEquals(leaf1.getDocId(),leaf2.getDocId());
+
+        // Update the view -- should contain only the key from the new rev, not the old:
+        view.updateIndex();
+        dump = view.dump();
+        Log.d(TAG, "View dump: " + dump);
+        Assert.assertEquals(5, dump.size());
+        Assert.assertEquals("\"40ur\"", dump.get(0).get("key"));
+        Assert.assertEquals(6, dump.get(0).get("seq"));
+        Assert.assertEquals("\"five\"", dump.get(1).get("key"));
+        Assert.assertEquals(5, dump.get(1).get("seq"));
+        Assert.assertEquals("\"one\"", dump.get(2).get("key"));
+        Assert.assertEquals(3, dump.get(2).get("seq"));
+        Assert.assertEquals("\"three\"", dump.get(3).get("key"));
+        Assert.assertEquals(4, dump.get(3).get("seq"));
+        Assert.assertEquals("\"two\"", dump.get(4).get("key"));
+        Assert.assertEquals(1, dump.get(4).get("seq"));
+    }
+    /**
+     * int ViewInternal_Tests.m
+     * - (void) test_ConflictWinner
+     *
+     * https://github.com/couchbase/couchbase-lite-android/issues/494
+     */
+    public void testConflictLoser() throws CouchbaseLiteException {
+        // Like the ConflictWinner test, except the newer revision is the loser,
+        // so it shouldn't be indexed at all. Instead, the older still-winning revision
+        // should be indexed again.
+        List<RevisionInternal> docs = putDocs(database);
+        RevisionInternal leaf1 = docs.get(1);
+
+        View view = createView(database);
+        view.updateIndex();
+        List<Map<String,Object>> dump = view.dump();
+        Log.d(TAG, "View dump: " + dump);
+        Assert.assertEquals(5, dump.size());
+        Assert.assertEquals("\"five\"", dump.get(0).get("key"));
+        Assert.assertEquals(5, dump.get(0).get("seq"));
+        Assert.assertEquals("\"four\"", dump.get(1).get("key"));
+        Assert.assertEquals(2, dump.get(1).get("seq"));
+        Assert.assertEquals("\"one\"", dump.get(2).get("key"));
+        Assert.assertEquals(3, dump.get(2).get("seq"));
+        Assert.assertEquals("\"three\"", dump.get(3).get("key"));
+        Assert.assertEquals(4, dump.get(3).get("seq"));
+        Assert.assertEquals("\"two\"", dump.get(4).get("key"));
+        Assert.assertEquals(1, dump.get(4).get("seq"));
+
+        // Create a conflict, won by the new revision:
+        Map<String,Object> props = new HashMap<String,Object>();
+        props.put("_id", "44444");
+        props.put("_rev", "1-...."); // lower revID, will lose conflict
+        props.put("key", "40ur");
+        RevisionInternal leaf2 = new RevisionInternal(props);
+        database.forceInsert(leaf2, new ArrayList<String>(), null);
+        Assert.assertEquals(leaf1.getDocId(),leaf2.getDocId());
+
+        // Update the view -- should contain only the key from the new rev, not the old:
+        view.updateIndex();
+        dump = view.dump();
+        Log.d(TAG, "View dump: " + dump);
+        Assert.assertEquals(5, dump.size());
+        Assert.assertEquals("\"five\"", dump.get(0).get("key"));
+        Assert.assertEquals(5, dump.get(0).get("seq"));
+        Assert.assertEquals("\"four\"", dump.get(1).get("key"));
+        Assert.assertEquals(2, dump.get(1).get("seq"));
+        Assert.assertEquals("\"one\"", dump.get(2).get("key"));
+        Assert.assertEquals(3, dump.get(2).get("seq"));
+        Assert.assertEquals("\"three\"", dump.get(3).get("key"));
+        Assert.assertEquals(4, dump.get(3).get("seq"));
+        Assert.assertEquals("\"two\"", dump.get(4).get("key"));
+        Assert.assertEquals(1, dump.get(4).get("seq"));
+    }
+    /**
+     * https://github.com/couchbase/couchbase-lite-android/issues/494
+     */
+    public void testIndexingOlderRevision() throws CouchbaseLiteException{
+        // In case conflictWinner was deleted, conflict loser should be indexed.
+
+        // create documents
+        List<RevisionInternal> docs = putDocs(database);
+        RevisionInternal leaf1 = docs.get(1);
+
+        Assert.assertEquals("four", database.getDocument("44444").getProperty("key"));
+
+        // update index
+        View view = createView(database);
+        view.updateIndex();
+        List<Map<String,Object>> dump = view.dump();
+        Log.d(TAG, "View dump: " + dump);
+        Assert.assertEquals(5, dump.size());
+        Assert.assertEquals("\"five\"", dump.get(0).get("key"));
+        Assert.assertEquals(5, dump.get(0).get("seq"));
+        Assert.assertEquals("\"four\"", dump.get(1).get("key"));
+        Assert.assertEquals(2, dump.get(1).get("seq"));
+        Assert.assertEquals("\"one\"", dump.get(2).get("key"));
+        Assert.assertEquals(3, dump.get(2).get("seq"));
+        Assert.assertEquals("\"three\"", dump.get(3).get("key"));
+        Assert.assertEquals(4, dump.get(3).get("seq"));
+        Assert.assertEquals("\"two\"", dump.get(4).get("key"));
+        Assert.assertEquals(1, dump.get(4).get("seq"));
+
+        // Create a conflict, won by the new revision:
+        Map<String,Object> props = new HashMap<String,Object>();
+        props.put("_id", "44444");
+        props.put("_rev", "1-~~~~~");  // higher revID, will win conflict
+        props.put("key", "40ur");
+        RevisionInternal leaf2 = new RevisionInternal(props);
+        database.forceInsert(leaf2, new ArrayList<String>(), null);
+        Assert.assertEquals(leaf1.getDocId(),leaf2.getDocId());
+
+        Assert.assertEquals("40ur", database.getDocument("44444").getProperty("key"));
+
+        // Update the view -- should contain only the key from the new rev, not the old:
+        view.updateIndex();
+        dump = view.dump();
+        Log.d(TAG, "View dump: " + dump);
+        Assert.assertEquals(5, dump.size());
+        Assert.assertEquals("\"40ur\"", dump.get(0).get("key"));
+        Assert.assertEquals(6, dump.get(0).get("seq"));
+        Assert.assertEquals("\"five\"", dump.get(1).get("key"));
+        Assert.assertEquals(5, dump.get(1).get("seq"));
+        Assert.assertEquals("\"one\"", dump.get(2).get("key"));
+        Assert.assertEquals(3, dump.get(2).get("seq"));
+        Assert.assertEquals("\"three\"", dump.get(3).get("key"));
+        Assert.assertEquals(4, dump.get(3).get("seq"));
+        Assert.assertEquals("\"two\"", dump.get(4).get("key"));
+        Assert.assertEquals(1, dump.get(4).get("seq"));
+
+
+        // create new revision with delete
+        RevisionInternal leaf3 = new RevisionInternal("44444", null, true);
+        leaf3 = database.putRevision(leaf3, "1-~~~~~", true);
+        Assert.assertEquals(leaf1.getDocId(),leaf3.getDocId());
+        Assert.assertEquals(true, leaf3.isDeleted());
+
+        Assert.assertEquals("four", database.getDocument("44444").getProperty("key"));
+
+        view.updateIndex();
+        dump = view.dump();
+        Log.e(TAG, "View dump: " + dump);
+        Assert.assertEquals(5, dump.size());
+        Assert.assertEquals("\"five\"", dump.get(0).get("key"));
+        Assert.assertEquals(5, dump.get(0).get("seq"));
+        Assert.assertEquals("\"four\"", dump.get(1).get("key"));
+        Assert.assertEquals(2, dump.get(1).get("seq"));
+        Assert.assertEquals("\"one\"", dump.get(2).get("key"));
+        Assert.assertEquals(3, dump.get(2).get("seq"));
+        Assert.assertEquals("\"three\"", dump.get(3).get("key"));
+        Assert.assertEquals(4, dump.get(3).get("seq"));
+        Assert.assertEquals("\"two\"", dump.get(4).get("key"));
+        Assert.assertEquals(1, dump.get(4).get("seq"));
+    }
+
+    /**
+     * LiveQuery should re-run query from scratch after options are changed
+     * https://github.com/couchbase/couchbase-lite-ios/issues/596
+     * <p/>
+     * in View_Tests.m
+     * - (void) test13_LiveQuery_UpdateWhenQueryOptionsChanged
+     */
+    public void testLiveQueryUpdateWhenQueryOptionsChanged() throws CouchbaseLiteException, InterruptedException {
+        View view = database.getView("vu");
+        view.setMap(new Mapper() {
+            @Override
+            public void map(Map<String, Object> document, Emitter emitter) {
+                emitter.emit(document.get("sequence"), null);
+            }
+        }, "1");
+
+        createDocuments(database, 5);
+
+        Query query = view.createQuery();
+        QueryEnumerator rows = query.run();
+
+        assertEquals(5, rows.getCount());
+
+        int expectedKey = 0;
+        for (QueryRow row : rows) {
+            assertEquals(((Integer) row.getKey()).intValue(), expectedKey++);
+        }
+
+        LiveQuery liveQuery = view.createQuery().toLiveQuery();
+        final CountDownLatch latch1 = new CountDownLatch(1);
+        final CountDownLatch latch2 = new CountDownLatch(2);
+        liveQuery.addChangeListener(new LiveQuery.ChangeListener() {
+            @Override
+            public void changed(LiveQuery.ChangeEvent event) {
+                Log.e(TAG, "---- changed ---");
+                latch1.countDown();
+                latch2.countDown();
+            }
+        });
+        liveQuery.start();
+
+        boolean success1 = latch1.await(3, TimeUnit.SECONDS);
+        assertTrue(success1);
+
+        rows = liveQuery.getRows();
+        assertNotNull(rows);
+        assertEquals(5, rows.getCount());
+        expectedKey = 0;
+        for (QueryRow row : rows) {
+            assertEquals(((Integer) row.getKey()).intValue(), expectedKey++);
+        }
+
+        liveQuery.setStartKey(2);
+        liveQuery.queryOptionsChanged();
+
+        boolean success2 = latch2.await(3, TimeUnit.SECONDS);
+        assertTrue(success2);
+
+        rows = liveQuery.getRows();
+        assertNotNull(rows);
+        assertEquals(3, rows.getCount());
+        expectedKey = 2;
+        for (QueryRow row : rows) {
+            assertEquals(((Integer) row.getKey()).intValue(), expectedKey++);
+        }
+
+        liveQuery.stop();
+    }
+
+    /**
+     * Tests that when converting from a Query to a LiveQuery, all properties are preserved.
+     * More speficially tests that the Query copy constructor copies all fields.
+     *
+     * Regression test for couchbase/couchbase-lite-java-core#585.
+     */
+    public void testQueryToLiveQuery() throws Exception {
+        View view = database.getView("vu");
+        Query query = view.createQuery();
+
+        query.setAllDocsMode(Query.AllDocsMode.INCLUDE_DELETED);
+        assertTrue(query.shouldIncludeDeleted());
+        query.setPrefetch(true);
+        query.setPrefixMatchLevel(1);
+        query.setStartKey(Arrays.asList("hello", "wo"));
+        query.setStartKey(Arrays.asList("hello", "wo", Collections.EMPTY_MAP));
+        query.setKeys(Arrays.<Object>asList("1", "5", "aaaaa"));
+        query.setGroupLevel(2);
+        query.setPrefixMatchLevel(2);
+        query.setStartKeyDocId("1");
+        query.setEndKeyDocId("123456789");
+        query.setDescending(true);
+        query.setLimit(10);
+        query.setIndexUpdateMode(Query.IndexUpdateMode.NEVER);
+        query.setSkip(2);
+        query.setPostFilter(new Predicate<QueryRow>() {
+            @Override
+            public boolean apply(QueryRow type) {
+                return true;
+            }
+        });
+        query.setMapOnly(true);
+
+        // Lets also test the copy constructor itself
+        // But first ensure our assumptions hold
+        if (Modifier.isAbstract(Query.class.getModifiers())) {
+            fail("Assumption failed: test needs to be updated");
+        }
+        if (Query.class.getSuperclass() != Object.class) {
+            // sameFields(Object, Object) does not compare fields of superclasses
+            fail("Assumption failed: test needs to be updated");
+        }
+        Constructor<Query> copyConstructor = null;
+        try {
+            copyConstructor = Query.class.getDeclaredConstructor(Database.class, Query.class);
+        } catch (NoSuchMethodException e) {
+            fail("Copy constructor not found");
+        }
+        if (Modifier.isPrivate(copyConstructor.getModifiers())) {
+            fail("Copy constructor is private");
+        }
+
+        // Constructor is package protected
+        copyConstructor.setAccessible(true);
+
+        // Now make some copies
+        LiveQuery copy1 = query.toLiveQuery();
+        Query copy2 = copyConstructor.newInstance(query.getDatabase(), query);
+
+        sameFields(query, copy1);
+        sameFields(query, copy2);
+    }
+
+    private static <T> void sameFields(T expected, T actual) throws Exception {
+        // Compare the fields in the expected class (Query)
+        // and not the ones in actual, as it may be a subclass (LiveQuery)
+        assertNotNull(actual);
+        Class<?> clazz = expected.getClass();
+        Field[] fields = clazz.getDeclaredFields();
+
+        boolean compared = false;
+        for (Field field: fields) {
+            if (Modifier.isStatic(field.getModifiers())) {
+                continue;
+            }
+            field.setAccessible(true);
+            Object expectedObj = field.get(expected);
+            Object actualObj = field.get(actual);
+            assertEquals(expectedObj, actualObj);
+            compared = true;
+        }
+        assertTrue("No fields to compare?!?", compared);
+    }
+
+    public void testDeleteIndexTest() {
+        View newView = database.getView("newview");
+        newView.deleteIndex();
+        newView.setMap(
+                new Mapper() {
+                    @Override
+                    public void map(Map<String, Object> documentProperties, Emitter emitter) {
+                        String documentId = (String) documentProperties.get("_id");
+                        emitter.emit(documentId, "Document id is " + documentId);
+                    }
+                },
+                "1"
+        );
+        Query query = database.getView("newview").createQuery();
+        QueryEnumerator queryResult = null;
+        try {
+            queryResult = query.run();
+        } catch (CouchbaseLiteException e) {
+            Log.e(TAG, "Failed to run Query.run() for indexDeleted", e);
+            fail("Failed to run Query.run() for indexDeleted");
+        }
+
+        for (Iterator<QueryRow> it = queryResult.iterator(); it.hasNext(); ) {
+            QueryRow row = it.next();
+            Log.i("deleteIndexTest", (String) row.getValue());
+        }
+    }
+}

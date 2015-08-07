@@ -1,5 +1,4 @@
 /build
-/libraries
 \#*
 *~
 .#*
@@ -15,5 +14,3 @@ local.properties
 
 local-test.properties
 settings.gradle
-
-/lib

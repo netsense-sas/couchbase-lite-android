@@ -28,8 +28,6 @@ public class ApiTest extends LiteTestCase {
 
     private int changeCount = 0;
 
-
-
     //SERVER & DOCUMENTS
 
     public void testAPIManager() throws Exception {
@@ -83,7 +81,8 @@ public class ApiTest extends LiteTestCase {
         assertTrue(deleteme.exists());
         String dbPath =deleteme.getPath();
         assertTrue(new File(dbPath).exists());
-        assertTrue(new File(dbPath.substring(0, dbPath.lastIndexOf('.'))).exists());
+        // check for attachment directory
+        assertTrue(new File(dbPath.substring(0, dbPath.lastIndexOf('.')) + " attachments").exists());
         deleteme.delete();
         assertFalse(deleteme.exists());
         assertFalse(new File(dbPath).exists());
@@ -552,7 +551,7 @@ public class ApiTest extends LiteTestCase {
 
     }
 
-    public void failingTestCreateIdenticalParentContentRevisions() throws Exception {
+    public void testCreateIdenticalParentContentRevisions() throws Exception {
         Document doc = database.createDocument();
         SavedRevision rev = doc.createRevision().save();
 
@@ -850,15 +849,13 @@ public class ApiTest extends LiteTestCase {
         int numTimesCallbackCalled = atomicInteger.get();
         Log.d(Database.TAG, "testLiveQueryStop: numTimesCallbackCalled is: " + numTimesCallbackCalled + ".  Now adding docs");
 
-        for (int i=0; i<10; i++) {
+        for (int i = 0; i < 10; i++) {
             createDocuments(db, 1);
             Log.d(Database.TAG, "testLiveQueryStop: add a document.  atomicInteger.get(): " + atomicInteger.get());
             assertEquals(numTimesCallbackCalled, atomicInteger.get());
             Thread.sleep(200);
         }
         assertEquals(numTimesCallbackCalled, atomicInteger.get());
-
-
     }
 
     public void testLiveQueryRestart() throws Exception {
@@ -933,10 +930,10 @@ public class ApiTest extends LiteTestCase {
         query.removeChangeListener(changeListener);
         query.stop();
 
-        // Workaround:
-        // Putting a small sleep to ensure that the liveQuery is done its async update operation.
-        // https://github.com/couchbase/couchbase-lite-java-core/issues/296
-        Thread.sleep(500);
+        // Workaround for https://github.com/couchbase/couchbase-lite-android/issues/613
+        try {
+            Thread.sleep(2 * 1000);
+        }catch(Exception e){}
     }
 
     public void testAsyncViewQuery() throws Exception {

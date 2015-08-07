@@ -2,12 +2,10 @@ package com.couchbase.lite.support;
 
 import com.couchbase.lite.Database;
 import com.couchbase.lite.LiteTestCase;
-import com.couchbase.lite.replicator.Replication;
 import com.couchbase.lite.util.Log;
-import com.couchbase.lite.util.SystemLogger;
+import com.couchbase.lite.util.Utils;
 
 import java.util.ArrayList;
-import java.util.Arrays;
 import java.util.List;
 import java.util.concurrent.BlockingQueue;
 import java.util.concurrent.CountDownLatch;
@@ -16,7 +14,6 @@ import java.util.concurrent.ScheduledExecutorService;
 import java.util.concurrent.ScheduledThreadPoolExecutor;
 import java.util.concurrent.TimeUnit;
 import java.util.concurrent.atomic.AtomicInteger;
-import java.util.concurrent.atomic.AtomicLong;
 
 public class BatcherTest extends LiteTestCase {
 
@@ -59,6 +56,8 @@ public class BatcherTest extends LiteTestCase {
         boolean didNotTimeOut = doneSignal.await(35, TimeUnit.SECONDS);
         assertTrue(didNotTimeOut);
 
+        // Note: ExecutorService should be called shutdown()
+        Utils.shutdownAndAwaitTermination(workExecutor);
     }
 
     /**
@@ -67,7 +66,6 @@ public class BatcherTest extends LiteTestCase {
      * Also make sure that they appear in the correct order within a batch.
      */
     public void testBatcherBatchSize5() throws Exception {
-
 
         ScheduledExecutorService workExecutor = new ScheduledThreadPoolExecutor(1);
 
@@ -108,6 +106,8 @@ public class BatcherTest extends LiteTestCase {
         boolean didNotTimeOut = doneSignal.await(35, TimeUnit.SECONDS);
         assertTrue(didNotTimeOut);
 
+        // Note: ExecutorService should be called shutdown()
+        Utils.shutdownAndAwaitTermination(workExecutor);
     }
 
     /**
@@ -186,7 +186,8 @@ public class BatcherTest extends LiteTestCase {
         batcher.waitForPendingFutures();
         Log.d(TAG, "/waiting for pending futures");
 
-
+        // Note: ExecutorService should be called shutdown()
+        Utils.shutdownAndAwaitTermination(workExecutor);
     }
 
     /**
@@ -233,9 +234,9 @@ public class BatcherTest extends LiteTestCase {
             assertTrue(delta > 0);
             assertTrue(delta >= processorDelay);
 
+            // Note: ExecutorService should be called shutdown()
+            Utils.shutdownAndAwaitTermination(workExecutor);
         }
-
-
     }
 
 
@@ -290,19 +291,15 @@ public class BatcherTest extends LiteTestCase {
             assertTrue(success);
 
             // add another object
-            timeBeforeQueue = System.currentTimeMillis();
             batcher.queueObject(new String());
 
             // we shouldn't see latch close until processorDelay milliseconds has passed
             success = latch2.await(5, TimeUnit.SECONDS);
             assertTrue(success);
-            timeAfterCallback = System.currentTimeMillis();
-            delta = timeAfterCallback - timeBeforeQueue;
-            assertTrue(delta > 0);
-            assertTrue(delta >= processorDelay);
+
+            // Note: ExecutorService should be called shutdown()
+            Utils.shutdownAndAwaitTermination(workExecutor);
         }
-
-
     }
 
     /**
@@ -345,8 +342,9 @@ public class BatcherTest extends LiteTestCase {
         // at this point, the countdown latch should be 0
         assertEquals(0, latch.getCount());
 
+        // Note: ExecutorService should be called shutdown()
+        Utils.shutdownAndAwaitTermination(workExecutor);
     }
-
 
     /**
      * - Call batcher to queue a single item in a fast loop
@@ -356,9 +354,11 @@ public class BatcherTest extends LiteTestCase {
 
         ScheduledExecutorService workExecutor = new ScheduledThreadPoolExecutor(1);
         final int inboxCapacity = 10;
-        final int processorDelay = 500;
         final int numItemsToSubmit = inboxCapacity * 100;
-        final int jobDelay = 50;
+        final int jobDelay = 50;                  // 50ms
+        final int processorDelay = jobDelay * 20; // 1000ms
+
+
 
         final CountDownLatch latchFirstProcess = new CountDownLatch(1);
         final CountDownLatch latchSubmittedCapacity = new CountDownLatch(1);
@@ -379,10 +379,11 @@ public class BatcherTest extends LiteTestCase {
             }
         });
 
+        final CountDownLatch monitorThread = new CountDownLatch(1);
         Thread t = new Thread(new Runnable() {
             @Override
             public void run() {
-                for (int i=0; i<numItemsToSubmit; i++) {
+                for (int i = 0; i < numItemsToSubmit; i++) {
 
                     if (i == inboxCapacity) {
                         latchSubmittedCapacity.countDown();
@@ -392,8 +393,8 @@ public class BatcherTest extends LiteTestCase {
                     objectsToQueue.add(Integer.toString(i));
                     batcher.queueObjects(objectsToQueue);
                     Log.d(TAG, "Submitted object %d", i);
-
                 }
+                monitorThread.countDown();;
             }
         });
         t.start();
@@ -403,7 +404,10 @@ public class BatcherTest extends LiteTestCase {
 
         // since we've already submitted up to capacity, our processor should
         // be called nearly immediately afterwards
-        success = latchFirstProcess.await(500, TimeUnit.MILLISECONDS);
+        // NOTE: latchFirstProcess should be 0 after between 50ms and 1000ms.
+        //       But it seems 100ms is not good enough for slow simulator.
+        //       This is reason that currently waits 500ms.
+        success = latchFirstProcess.await(jobDelay * 10, TimeUnit.MILLISECONDS);
         assertTrue(success);
 
         // we should not have been interrupted either
@@ -411,9 +415,11 @@ public class BatcherTest extends LiteTestCase {
 
         t.interrupt();
 
+        monitorThread.await();
+
+        // Note: ExecutorService should be called shutdown()
+        Utils.shutdownAndAwaitTermination(workExecutor);
     }
-
-
 
     private static void assertNumbersConsecutive(List<String> itemsToProcess) {
         int previousItemNumber = -1;
@@ -427,5 +433,4 @@ public class BatcherTest extends LiteTestCase {
             }
         }
     }
-
 }

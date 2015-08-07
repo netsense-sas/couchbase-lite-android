@@ -1,5 +1,6 @@
 package com.couchbase.lite;
 
+import com.couchbase.lite.internal.Body;
 import com.couchbase.lite.internal.RevisionInternal;
 import com.couchbase.lite.mockserver.MockDispatcher;
 import com.couchbase.lite.mockserver.MockDocumentGet;
@@ -7,15 +8,17 @@ import com.couchbase.lite.mockserver.MockHelper;
 import com.couchbase.lite.mockserver.MockPreloadedPullTarget;
 import com.couchbase.lite.replicator.CustomizableMockHttpClient;
 import com.couchbase.lite.replicator.Replication;
-import com.couchbase.lite.replicator.ReplicationState;
-import com.couchbase.lite.support.HttpClientFactory;
-import com.couchbase.test.lite.*;
-
-import com.couchbase.lite.internal.Body;
-import com.couchbase.lite.router.*;
 import com.couchbase.lite.router.Router;
+import com.couchbase.lite.router.RouterCallbackBlock;
+import com.couchbase.lite.router.URLConnection;
+import com.couchbase.lite.router.URLStreamHandlerFactory;
 import com.couchbase.lite.storage.Cursor;
+import com.couchbase.lite.support.HttpClientFactory;
 import com.couchbase.lite.util.Log;
+import com.couchbase.lite.util.URIUtils;
+import com.couchbase.test.lite.LiteTestCaseBase;
+import com.fasterxml.jackson.core.type.TypeReference;
+import com.fasterxml.jackson.databind.ObjectMapper;
 import com.squareup.okhttp.mockwebserver.MockWebServer;
 import com.squareup.okhttp.mockwebserver.RecordedRequest;
 
@@ -26,16 +29,16 @@ import org.apache.commons.io.output.ByteArrayOutputStream;
 import org.apache.http.client.CookieStore;
 import org.apache.http.client.HttpClient;
 import org.apache.http.cookie.Cookie;
-import org.codehaus.jackson.map.ObjectMapper;
-import org.codehaus.jackson.type.TypeReference;
 
 import java.io.ByteArrayInputStream;
 import java.io.IOException;
 import java.io.InputStream;
+import java.io.InputStreamReader;
 import java.net.MalformedURLException;
 import java.net.URL;
 import java.util.ArrayList;
 import java.util.HashMap;
+import java.util.Iterator;
 import java.util.List;
 import java.util.Map;
 import java.util.Properties;
@@ -75,6 +78,10 @@ public class LiteTestCase extends LiteTestCaseBase {
 
     protected static boolean performanceTestsEnabled() {
         return Boolean.parseBoolean(System.getProperty("performanceTestsEnabled"));
+    }
+
+    protected static boolean syncgatewayTestsEnabled() {
+        return Boolean.parseBoolean(System.getProperty("syncgatewayTestsEnabled"));
     }
 
     protected InputStream getAsset(String name) {
@@ -132,12 +139,14 @@ public class LiteTestCase extends LiteTestCaseBase {
         Properties systemProperties = System.getProperties();
         InputStream mainProperties = getAsset("test.properties");
         if(mainProperties != null) {
-            systemProperties.load(mainProperties);
+            systemProperties.load(new InputStreamReader(mainProperties, "UTF-8"));
+            mainProperties.close();
         }
         try {
             InputStream localProperties = getAsset("local-test.properties");
             if(localProperties != null) {
-                systemProperties.load(localProperties);
+                systemProperties.load(new InputStreamReader(localProperties, "UTF-8"));
+                localProperties.close();
             }
         } catch (IOException e) {
             Log.w(TAG, "Error trying to read from local-test.properties, does this file exist?");
@@ -171,7 +180,9 @@ public class LiteTestCase extends LiteTestCaseBase {
     protected URL getReplicationURL()  {
         try {
             if(getReplicationAdminUser() != null && getReplicationAdminUser().trim().length() > 0) {
-                return new URL(String.format("%s://%s:%s@%s:%d/%s", getReplicationProtocol(), getReplicationAdminUser(), getReplicationAdminPassword(), getReplicationServer(), getReplicationPort(), getReplicationDatabase()));
+                String username = URIUtils.encode(getReplicationAdminUser());
+                String password = URIUtils.encode(getReplicationAdminPassword());
+                return new URL(String.format("%s://%s:%s@%s:%d/%s", getReplicationProtocol(), username, password, getReplicationServer(), getReplicationPort(), getReplicationDatabase()));
             } else {
                 return new URL(String.format("%s://%s:%d/%s", getReplicationProtocol(), getReplicationServer(), getReplicationPort(), getReplicationDatabase()));
             }
@@ -183,7 +194,9 @@ public class LiteTestCase extends LiteTestCaseBase {
     protected URL getReplicationSubURL(String subIndex)  {
         try {
             if(getReplicationAdminUser() != null && getReplicationAdminUser().trim().length() > 0) {
-                return new URL(String.format("%s://%s:%s@%s:%d/%s%s", getReplicationProtocol(), getReplicationAdminUser(), getReplicationAdminPassword(), getReplicationServer(), getReplicationPort(), getReplicationDatabase(),subIndex));
+                String username = URIUtils.encode(getReplicationAdminUser());
+                String password = URIUtils.encode(getReplicationAdminPassword());
+                return new URL(String.format("%s://%s:%s@%s:%d/%s%s", getReplicationProtocol(), username, password, getReplicationServer(), getReplicationPort(), getReplicationDatabase(),subIndex));
             } else {
                 return new URL(String.format("%s://%s:%d/%s%s", getReplicationProtocol(), getReplicationServer(), getReplicationPort(), getReplicationDatabase(),subIndex));
             }
@@ -259,27 +272,46 @@ public class LiteTestCase extends LiteTestCaseBase {
     protected URLConnection sendRequest(String method, String path, Map<String, String> headers, Object bodyObj) {
         try {
             URL url = new URL("cblite://" + path);
-            URLConnection conn = (URLConnection)url.openConnection();
+            URLConnection conn = (URLConnection) url.openConnection();
             conn.setDoOutput(true);
             conn.setRequestMethod(method);
-            if(headers != null) {
+            if (headers != null) {
                 for (String header : headers.keySet()) {
                     conn.setRequestProperty(header, headers.get(header));
                 }
             }
             Map<String, List<String>> allProperties = conn.getRequestProperties();
-            if(bodyObj != null) {
+            if (bodyObj != null) {
                 conn.setDoInput(true);
                 ByteArrayInputStream bais = new ByteArrayInputStream(mapper.writeValueAsBytes(bodyObj));
                 conn.setRequestInputStream(bais);
             }
 
             Router router = new com.couchbase.lite.router.Router(manager, conn);
+
+            final CountDownLatch latch = new CountDownLatch(1);
+            router.setCallbackBlock(new RouterCallbackBlock() {
+                @Override
+                public void onResponseReady() {
+                    latch.countDown();
+                }
+            });
+
             router.start();
+
+            boolean success = false;
+            try {
+                // NOTE: latch.await() should be fine. 60 sec for just in case.
+                success = latch.await(60, TimeUnit.SECONDS);
+            } catch (InterruptedException e) {
+                e.printStackTrace();
+            }
+            assertTrue(success);
+
             return conn;
         } catch (MalformedURLException e) {
             fail();
-        } catch(IOException e) {
+        } catch (IOException e) {
             fail();
         }
         return null;
@@ -365,10 +397,7 @@ public class LiteTestCase extends LiteTestCaseBase {
         return doc;
     }
 
-    public static Document createDocWithAttachment(Database database, String attachmentName, String content) throws Exception {
-
-        Map<String,Object> properties = new HashMap<String, Object>();
-        properties.put("foo", "bar");
+    public static Document createDocWithAttachment(Database database, String attachmentName, String content,  Map<String,Object> properties) throws Exception {
 
         Document doc = createDocumentWithProperties(database, properties);
         SavedRevision rev = doc.getCurrentRevision();
@@ -402,6 +431,15 @@ public class LiteTestCase extends LiteTestCaseBase {
         assertEquals(content.getBytes().length, attach.getLength());
 
         return doc;
+
+    }
+
+    public static Document createDocWithAttachment(Database database, String attachmentName, String content) throws Exception {
+
+        Map<String,Object> properties = new HashMap<String, Object>();
+        properties.put("foo", "bar");
+        return createDocWithAttachment(database, attachmentName, content, properties);
+
     }
 
 
@@ -454,7 +492,7 @@ public class LiteTestCase extends LiteTestCaseBase {
         doc1Properties.put("bar", false);
 
         Body body = new Body(doc1Properties);
-        RevisionInternal rev1 = new RevisionInternal(body, database);
+        RevisionInternal rev1 = new RevisionInternal(body);
 
         Status status = new Status();
         rev1 = database.putRevision(rev1, null, false, status);
@@ -464,7 +502,7 @@ public class LiteTestCase extends LiteTestCaseBase {
         doc1Properties.put("UPDATED", true);
 
         @SuppressWarnings("unused")
-        RevisionInternal rev2 = database.putRevision(new RevisionInternal(doc1Properties, database), rev1.getRevId(), false, status);
+        RevisionInternal rev2 = database.putRevision(new RevisionInternal(doc1Properties), rev1.getRevId(), false, status);
         assertEquals(Status.CREATED, status.getCode());
 
         Map<String, Object> doc2Properties = new HashMap<String, Object>();
@@ -473,7 +511,7 @@ public class LiteTestCase extends LiteTestCaseBase {
         doc2Properties.put("baz", 666);
         doc2Properties.put("fnord", true);
 
-        database.putRevision(new RevisionInternal(doc2Properties, database), null, false, status);
+        database.putRevision(new RevisionInternal(doc2Properties), null, false, status);
         assertEquals(Status.CREATED, status.getCode());
 
         Document doc2 = database.getDocument(doc2Id);
@@ -694,9 +732,7 @@ public class LiteTestCase extends LiteTestCaseBase {
             int deleted = cursor.getInt(5);
             Log.d(TAG, String.format("Revs row seq: %s doc_id: %s, revIdStr: %s, parent: %s, current: %s, deleted: %s",
                     sequence, doc_id, revIdStr, parent, current, deleted));
-
         }
-
     }
 
     public static SavedRevision createRevisionWithRandomProps(SavedRevision createRevFrom, boolean allowConflict) throws Exception {
@@ -708,7 +744,6 @@ public class LiteTestCase extends LiteTestCaseBase {
     }
 
     /*
-
     Assert that the bulk docs json in request contains given doc.
 
     Example bulk docs json.
@@ -728,9 +763,18 @@ public class LiteTestCase extends LiteTestCaseBase {
         List docs = (List) bulkDocsJson.get("docs");
         Map<String, Object> firstDoc = (Map<String, Object>) docs.get(0);
         assertEquals(doc.getId(), firstDoc.get("_id"));
+    }
 
-
-
+    protected boolean isBulkDocJsonContainsDoc(RecordedRequest request, Document doc) throws Exception {
+        Map <String, Object> bulkDocsJson = Manager.getObjectMapper().readValue(request.getUtf8Body(), Map.class);
+        List docs = (List) bulkDocsJson.get("docs");
+        Iterator<Object> itr = docs.iterator();
+        while(itr.hasNext()){
+            Map<String, Object> tmp = (Map<String, Object>)itr.next();
+            if(tmp.get("_id").equals(doc.getId()))
+                return true;
+        }
+        return false;
     }
 
     public static class ReplicationIdleObserver implements Replication.ChangeListener {
@@ -748,7 +792,6 @@ public class LiteTestCase extends LiteTestCaseBase {
                 doneSignal.countDown();
             }
         }
-
     }
 
     public static class ReplicationFinishedObserver implements Replication.ChangeListener {
@@ -767,7 +810,6 @@ public class LiteTestCase extends LiteTestCaseBase {
                 assertEquals(event.getChangeCount(), event.getCompletedChangeCount());
             }
         }
-
     }
 
     public static class ReplicationOfflineObserver implements Replication.ChangeListener {
@@ -785,7 +827,6 @@ public class LiteTestCase extends LiteTestCaseBase {
                 doneSignal.countDown();
             }
         }
-
     }
 
     public static class ReplicationActiveObserver implements Replication.ChangeListener {
@@ -803,10 +844,5 @@ public class LiteTestCase extends LiteTestCaseBase {
                 doneSignal.countDown();
             }
         }
-
     }
-
-
-
-
 }

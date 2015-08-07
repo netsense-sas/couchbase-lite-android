@@ -3,10 +3,9 @@ package com.couchbase.lite;
 import com.couchbase.lite.util.Log;
 import com.couchbase.touchdb.RevCollator;
 import com.couchbase.touchdb.TDCollateJSON;
+import com.fasterxml.jackson.databind.ObjectMapper;
 
 import junit.framework.Assert;
-
-import org.codehaus.jackson.map.ObjectMapper;
 
 public class CollationTest extends LiteTestCase {
 
@@ -36,19 +35,23 @@ public class CollationTest extends LiteTestCase {
         Assert.assertEquals(1, TDCollateJSON.testCollateJSONWrapper(mode, "true", "false"));
         Assert.assertEquals(-1, TDCollateJSON.testCollateJSONWrapper(mode, "false", "true"));
         Assert.assertEquals(-1, TDCollateJSON.testCollateJSONWrapper(mode, "null", "17"));
+        Assert.assertEquals(0, TDCollateJSON.testCollateJSONWrapper(mode, "1", "1"));
         Assert.assertEquals(1, TDCollateJSON.testCollateJSONWrapper(mode, "123", "1"));
         Assert.assertEquals(0, TDCollateJSON.testCollateJSONWrapper(mode, "123", "0123.0"));
         Assert.assertEquals(-1, TDCollateJSON.testCollateJSONWrapper(mode, "123", "\"123\""));
         Assert.assertEquals(1, TDCollateJSON.testCollateJSONWrapper(mode, "\"1234\"", "\"123\""));
+        Assert.assertEquals(-1, TDCollateJSON.testCollateJSONWrapper(mode, "\"123\"", "\"1234\""));
         Assert.assertEquals(-1, TDCollateJSON.testCollateJSONWrapper(mode, "\"1234\"", "\"1235\""));
         Assert.assertEquals(0, TDCollateJSON.testCollateJSONWrapper(mode, "\"1234\"", "\"1234\""));
         Assert.assertEquals(0, TDCollateJSON.testCollateJSONWrapper(mode, "\"12\\/34\"", "\"12/34\""));
         Assert.assertEquals(0, TDCollateJSON.testCollateJSONWrapper(mode, "\"\\/1234\"", "\"/1234\""));
         Assert.assertEquals(0, TDCollateJSON.testCollateJSONWrapper(mode, "\"1234\\/\"", "\"1234/\""));
+        Assert.assertEquals(0, TDCollateJSON.testCollateJSONWrapper(mode, "123", "00000000000000000000000000000000000000000000000000123"));
         Assert.assertEquals(-1, TDCollateJSON.testCollateJSONWrapper(mode, "\"a\"", "\"A\""));
         Assert.assertEquals(-1, TDCollateJSON.testCollateJSONWrapper(mode, "\"A\"", "\"aa\""));
         Assert.assertEquals(1, TDCollateJSON.testCollateJSONWrapper(mode, "\"B\"", "\"aa\""));
-
+        Assert.assertEquals(-1, TDCollateJSON.testCollateJSONWrapper(mode, "\"~\"", "\"A\""));
+        Assert.assertEquals(-1, TDCollateJSON.testCollateJSONWrapper(mode, "\"_\"", "\"A\""));
 
     }
 

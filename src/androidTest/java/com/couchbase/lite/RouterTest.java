@@ -382,9 +382,14 @@ public class RouterTest extends LiteTestCase {
         assertEquals(expectedRowsWithDocs, rows);
     }
 
+    /**
+     * in Router_Tests.m
+     * - (void) test_Views
+     */
     public void testViews() throws CouchbaseLiteException {
         send("PUT", "/db", Status.CREATED, null);
 
+        // PUT:
         Map<String,Object> result;
         Map<String,Object> doc1 = new HashMap<String,Object>();
         doc1.put("message", "hello");
@@ -402,7 +407,6 @@ public class RouterTest extends LiteTestCase {
         Database db = manager.getDatabase("db");
         View view = db.getView("design/view");
         view.setMapReduce(new Mapper() {
-
             @Override
             public void map(Map<String, Object> document, Emitter emitter) {
                 emitter.emit(document.get("message"), null);
@@ -410,7 +414,6 @@ public class RouterTest extends LiteTestCase {
         }, null, "1");
 
         // Build up our expected result
-
         Map<String,Object> row1 = new HashMap<String,Object>();
         row1.put("id", "doc1");
         row1.put("key", "hello");
@@ -456,6 +459,8 @@ public class RouterTest extends LiteTestCase {
         result = (Map<String,Object>)parseJSONResponse(conn);
         assertEquals(4, result.get("total_rows"));
     }
+
+
 
     public void testPostBulkDocs() {
         send("PUT", "/db", Status.CREATED, null);
@@ -672,9 +677,6 @@ public class RouterTest extends LiteTestCase {
         Log.v(TAG, String.format("result %s", result));
         String email = (String) result.get("email");
         assertEquals(email, "jens@mooseyard.com");
-
-
-
     }
 
     public void testPushReplicate() throws Exception {
@@ -721,10 +723,6 @@ public class RouterTest extends LiteTestCase {
             success = false;
         }
         return success;
-
-
-
-
     }
 
     public void testPullReplicate() throws Exception {
@@ -750,7 +748,6 @@ public class RouterTest extends LiteTestCase {
 
         // cleanup
         server.shutdown();
-
     }
 
     /**
@@ -801,5 +798,252 @@ public class RouterTest extends LiteTestCase {
     }
 
 
+    /**
+     * https://github.com/couchbase/couchbase-lite-java-core/issues/293
+     */
+    public void testTotalRowsAttributeOnViewQuery() throws CouchbaseLiteException {
+        send("PUT", "/db", Status.CREATED, null);
 
+        // PUT:
+        Map<String,Object> result;
+        Map<String,Object> doc1 = new HashMap<String,Object>();
+        doc1.put("message", "hello");
+        result = (Map<String,Object>)sendBody("PUT", "/db/doc1", doc1, Status.CREATED, null);
+        String revID = (String)result.get("rev");
+        Map<String,Object> doc3 = new HashMap<String,Object>();
+        doc3.put("message", "bonjour");
+        result = (Map<String,Object>)sendBody("PUT", "/db/doc3", doc3, Status.CREATED, null);
+        String revID3 = (String)result.get("rev");
+        Map<String,Object> doc2 = new HashMap<String,Object>();
+        doc2.put("message", "guten tag");
+        result = (Map<String,Object>)sendBody("PUT", "/db/doc2", doc2, Status.CREATED, null);
+        String revID2 = (String)result.get("rev");
+
+        Database db = manager.getDatabase("db");
+        View view = db.getView("design/view");
+        view.setMapReduce(new Mapper() {
+            @Override
+            public void map(Map<String, Object> document, Emitter emitter) {
+                emitter.emit(document.get("message"), null);
+            }
+        }, null, "1");
+
+
+        // Build up our expected result
+        Map<String,Object> row1 = new HashMap<String,Object>();
+        row1.put("id", "doc1");
+        row1.put("key", "hello");
+        Map<String,Object> row2 = new HashMap<String,Object>();
+        row2.put("id", "doc2");
+        row2.put("key", "guten tag");
+        Map<String,Object> row3 = new HashMap<String,Object>();
+        row3.put("id", "doc3");
+        row3.put("key", "bonjour");
+
+        List<Map<String,Object>> expectedRows = new ArrayList<Map<String,Object>>();
+        expectedRows.add(row3);
+        expectedRows.add(row2);
+        //expectedRows.add(row1);
+
+        Map<String,Object> expectedResult = new HashMap<String,Object>();
+        expectedResult.put("offset", 0);
+        expectedResult.put("total_rows", 3);
+        expectedResult.put("rows", expectedRows);
+
+        // Query the view and check the result:
+        send("GET", "/db/_design/design/_view/view?limit=2", Status.OK, expectedResult);
+
+        // Check the ETag:
+        URLConnection conn = sendRequest("GET", "/db/_design/design/_view/view", null, null);
+        String etag = conn.getHeaderField("Etag");
+        assertEquals(String.format("\"%d\"", view.getLastSequenceIndexed()), etag);
+
+        // Try a conditional GET:
+        Map<String,String> headers = new HashMap<String,String>();
+        headers.put("If-None-Match", etag);
+        conn = sendRequest("GET", "/db/_design/design/_view/view", headers, null);
+        assertEquals(Status.NOT_MODIFIED, conn.getResponseCode());
+
+        // Update the database:
+        Map<String,Object> doc4 = new HashMap<String,Object>();
+        doc4.put("message", "aloha");
+        result = (Map<String,Object>)sendBody("PUT", "/db/doc4", doc4, Status.CREATED, null);
+
+        // Try a conditional GET:
+        conn = sendRequest("GET", "/db/_design/design/_view/view?limit=2", headers, null);
+        assertEquals(Status.OK, conn.getResponseCode());
+        result = (Map<String,Object>)parseJSONResponse(conn);
+        assertEquals(2, ((List)result.get("rows")).size());
+        assertEquals(4, result.get("total_rows"));
+    }
+
+    public void testSession() {
+        send("PUT", "/db", Status.CREATED, null);
+
+        Map<String,Object> session = new HashMap<String,Object>();
+        Map<String,Object> userCtx = new HashMap<String,Object>();
+        List<String> roles = new ArrayList<String>();
+        roles.add("_admin");
+        session.put("ok", true);
+        userCtx.put("name", null);
+        userCtx.put("roles", roles);
+        session.put("userCtx", userCtx);
+
+        send("GET", "/_session", Status.OK, session);
+        send("GET", "/db/_session", Status.OK, session);
+    }
+
+    /**
+     * https://github.com/couchbase/couchbase-lite-java-core/issues/291
+     */
+    public void testCallReplicateTwice() throws Exception {
+
+        // create mock sync gateway that will serve as a pull target and return random docs
+        int numMockDocsToServe = 0;
+        MockDispatcher dispatcher = new MockDispatcher();
+        MockWebServer server = MockHelper.getPreloadedPullTargetMockCouchDB(dispatcher, numMockDocsToServe, 1);
+        dispatcher.setServerType(MockDispatcher.ServerType.COUCHDB);
+        server.setDispatcher(dispatcher);
+        server.play();
+
+        // kick off 1st replication via REST api
+        Map<String, Object> replicateJsonMap = getPullReplicationParsedJson(server.getUrl("/db"));
+        Log.i(TAG, "map: " + replicateJsonMap);
+
+        Log.i(TAG, "Call 1st /_replicate");
+        Map<String, Object> result = (Map<String, Object>) sendBody("POST", "/_replicate", replicateJsonMap, Status.OK, null);
+        Log.i(TAG, "result: " + result);
+        assertNotNull(result.get("session_id"));
+        String sessionId1 = (String) result.get("session_id");
+
+        // NOTE: one short replication should be blocked. sendBody() waits till response is ready.
+        //      https://github.com/couchbase/couchbase-lite-android/issues/204
+        
+        // kick off 2nd replication via REST api
+        Log.i(TAG, "Call 2nd /_replicate");
+        Map<String, Object> result2 = (Map<String, Object>) sendBody("POST", "/_replicate", replicateJsonMap, Status.OK, null);
+        Log.i(TAG, "result2: " + result2);
+        assertNotNull(result2.get("session_id"));
+        String sessionId2 = (String) result2.get("session_id");
+
+        // wait for replication to finish
+        boolean success = waitForReplicationToFinish();
+        assertTrue(success);
+
+        // kick off 3rd replication via REST api
+        Log.i(TAG, "Call 3rd /_replicate");
+        Map<String, Object> result3 = (Map<String, Object>) sendBody("POST", "/_replicate", replicateJsonMap, Status.OK, null);
+        Log.i(TAG, "result3: " + result3);
+        assertNotNull(result3.get("session_id"));
+        String sessionId3 = (String) result3.get("session_id");
+
+        // wait for replication to finish
+        boolean success3 = waitForReplicationToFinish();
+        assertTrue(success3);
+
+        assertFalse(sessionId1.equals(sessionId2));
+        assertFalse(sessionId1.equals(sessionId3));
+        assertFalse(sessionId2.equals(sessionId3));
+
+        // cleanup
+        server.shutdown();
+    }
+
+    /**
+     * https://github.com/couchbase/couchbase-lite-java-core/issues/291
+     */
+    public void testCallContinuousReplicateTwice() throws Exception {
+
+        // create mock sync gateway that will serve as a pull target and return random docs
+        int numMockDocsToServe = 0;
+        MockDispatcher dispatcher = new MockDispatcher();
+        MockWebServer server = MockHelper.getPreloadedPullTargetMockCouchDB(dispatcher, numMockDocsToServe, 1);
+        dispatcher.setServerType(MockDispatcher.ServerType.COUCHDB);
+        server.setDispatcher(dispatcher);
+        server.play();
+
+        // kick off 1st replication via REST api
+        Map<String, Object> replicateJsonMap = getPullReplicationParsedJson(server.getUrl("/db"));
+        replicateJsonMap.put("continuous", true);
+        Log.i(TAG, "map: " + replicateJsonMap);
+
+        Log.i(TAG, "Call 1st /_replicate");
+        Map<String, Object> result = (Map<String, Object>) sendBody("POST", "/_replicate", replicateJsonMap, Status.OK, null);
+        Log.i(TAG, "result: " + result);
+        assertNotNull(result.get("session_id"));
+        String sessionId1 = (String) result.get("session_id");
+
+        // no wait, immediately call new _replicate REST API
+
+        // kick off 2nd replication via REST api => Should be
+        Log.i(TAG, "Call 2nd /_replicate");
+        Map<String, Object> result2 = (Map<String, Object>) sendBody("POST", "/_replicate", replicateJsonMap, Status.OK, null);
+        Log.i(TAG, "result2: " + result2);
+        assertNotNull(result2.get("session_id"));
+        String sessionId2 = (String) result2.get("session_id");
+
+        // 20 sec is to wait replicator becomes IDLE
+        try {
+            Thread.sleep(20 * 1000);
+        } catch (Exception e) {
+        }
+
+        // kick off 34d replication via REST api => Should be
+        Log.i(TAG, "Call 3rd /_replicate");
+        Map<String, Object> result3 = (Map<String, Object>) sendBody("POST", "/_replicate", replicateJsonMap, Status.OK, null);
+        Log.i(TAG, "result3: " + result3);
+        assertNotNull(result3.get("session_id"));
+        String sessionId3 = (String) result3.get("session_id");
+
+        // 20 sec is to wait replicator becomes IDLE
+        try {
+            Thread.sleep(20 * 1000);
+        } catch (Exception e) {
+        }
+
+        // Cancel Replicator
+        replicateJsonMap.put("cancel", true);
+        Log.i(TAG, "map: " + replicateJsonMap);
+        Map<String, Object> result4 = (Map<String, Object>) sendBody("POST", "/_replicate", replicateJsonMap, Status.OK, null);
+        Log.i(TAG, "result4: " + result4);
+
+        // wait for replication to finish
+        boolean success = waitForReplicationToFinish();
+        assertTrue(success);
+
+        assertTrue(sessionId1.equals(sessionId2));
+        assertTrue(sessionId1.equals(sessionId3));
+
+        // cleanup
+        server.shutdown();
+    }
+
+    public void testPullReplicateOneShot() throws Exception {
+
+        // create mock sync gateway that will serve as a pull target and return random docs
+        int numMockDocsToServe = 0;
+        MockDispatcher dispatcher = new MockDispatcher();
+        MockWebServer server = MockHelper.getPreloadedPullTargetMockCouchDB(dispatcher, numMockDocsToServe, 1);
+        dispatcher.setServerType(MockDispatcher.ServerType.COUCHDB);
+        server.setDispatcher(dispatcher);
+        server.play();
+
+        // kick off replication via REST api
+        Map<String, Object> replicateJsonMap = getPullReplicationParsedJson(server.getUrl("/db"));
+        Log.e(TAG, "map: " + replicateJsonMap);
+
+        Map<String,Object> result = (Map<String,Object>)sendBody("POST", "/_replicate", replicateJsonMap, Status.OK, null);
+        Log.e(TAG, "result: " + result);
+        assertNotNull(result.get("session_id"));
+
+        ArrayList<Object> activeTasks = (ArrayList<Object>)send("GET", "/_active_tasks", Status.OK, null);
+        Log.e(TAG, "activeTasks.size(): " + activeTasks.size());
+        for(Object obj : activeTasks){
+            Map<String, Object> resp = (Map<String, Object>)obj;
+            assertEquals("Stopped", resp.get("status"));
+        }
+
+        // cleanup
+        server.shutdown();
+    }
 }

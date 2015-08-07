@@ -1,6 +1,4 @@
-
-[![Stories in Ready](https://badge.waffle.io/couchbase/couchbase-lite-android.png?label=ready&title=Ready)](https://waffle.io/couchbase/couchbase-lite-android)
-# Couchbase-Lite-Android #
+[![Join the chat at https://gitter.im/couchbase/mobile](https://badges.gitter.im/Join%20Chat.svg)](https://gitter.im/couchbase/mobile?utm_source=badge&utm_medium=badge&utm_campaign=pr-badge&utm_content=badge)
 
 Couchbase-Lite-Android is a lightweight embedded NoSQL database engine for Android with the built-in ability to sync to Couchbase Server on the backend.  
 
@@ -40,31 +38,59 @@ Using Gradle is the easiest way to automate Couchbase Lite builds in your projec
 
 ### Using latest official release
 
-Maven repo URL: `http://files.couchbase.com/maven2/`
+##### Maven repo URL: `http://files.couchbase.com/maven2/`
 
+In the project level `build.gradle` file, specify maven repo URL.
 ```
-<dependency>
-  <groupId>com.couchbase.lite</groupId>
-  <artifactId>android</artifactId>
-  <version>${latest_version}</version>
-</dependency>
+repositories {
+    jcenter()
+    maven {
+        url "http://files.couchbase.com/maven2/"
+    }
+}
 ```
 
-Where ${latest_version} should be replaced by something that looks like `1.0.3`.  To find the latest version, check our [Maven Repo](http://files.couchbase.com/maven2/com/couchbase/lite/couchbase-lite-java-core/) directly and look for the latest version, ignoring anything that has a dash after it.  (Eg, ignore items like `1.0.3-239` because they aren't official releases).
+##### Workaround for "duplicate files during packaging of APK" issue
+
+In the application level `build.gradle` file, add following in `android` section
+```
+// workaround for "duplicate files during packaging of APK" issue
+// see https://groups.google.com/d/msg/adt-dev/bl5Rc4Szpzg/wC8cylTWuIEJ
+packagingOptions {
+    exclude 'META-INF/ASL2.0'
+    exclude 'META-INF/LICENSE'
+    exclude 'META-INF/NOTICE'
+}    
+```
+
+##### Set couchbase-lite-android as dependency
+
+In the application level `build.gradle` file, add following in `dependencies` section
+```
+compile 'com.couchbase.lite:couchbase-lite-android:{latest-version}'
+```
+
+In case of using couchbase lite 1.0.4
+```
+dependencies {
+    compile fileTree(dir: 'libs', include: ['*.jar'])
+    compile 'com.android.support:appcompat-v7:21.0.3'
+    compile 'com.couchbase.lite:couchbase-lite-android:1.0.4'
+}
+```
+
+
+Where ${latest_version} should be replaced by something that looks like `1.0.4`.  To find the latest version, check our [Maven Repo](http://files.couchbase.com/maven2/com/couchbase/lite/couchbase-lite-android/) directly and look for the latest version, ignoring anything that has a dash after it.  (Eg, ignore items like `1.0.3-239` because they aren't official releases).
 
 ### Using master branch version (bleeding edge)
 
 Maven repo URL: `http://files.couchbase.com/maven2/`
 
 ```
-<dependency>
-  <groupId>com.couchbase.lite</groupId>
-  <artifactId>android</artifactId>
-  <version>0.0.0-473</version>
-</dependency>
+compile 'com.couchbase.lite:couchbase-lite-android:0.0.0-517'
 ```
 
-While `0.0.0-473` was the latest build at the time of writing, it's probably out of date by the time you are reading this. To get the latest build number (eg, the "473" part of the version above), see our [Maven Repo](http://files.couchbase.com/maven2/com/couchbase/lite/couchbase-lite-android/) and look for the highest numbered version that starts with `0.0.0-` and is later than `0.0.0-473`
+While `0.0.0-517` was the latest build at the time of writing, it's probably out of date by the time you are reading this. To get the latest build number (eg, the "517" part of the version above), see our [Maven Repo](http://files.couchbase.com/maven2/com/couchbase/lite/couchbase-lite-android/) and look for the highest numbered version that starts with `0.0.0-` and is later than `0.0.0-517`
 
 Here is a [complete gradle file](https://github.com/couchbaselabs/GrocerySync-Android/blob/master/GrocerySync-Android/build.gradle) that uses this maven artifact.
 
@@ -73,7 +99,7 @@ Here is a [complete gradle file](https://github.com/couchbaselabs/GrocerySync-An
 
 For Eclipse and Phonegap users, here are links to the zip file which includes the jars:
 
-* [Master Branch build #473 zipfile](http://factory.couchbase.com/job/build_cblite_android_master-community/lastSuccessfulBuild/artifact/couchbase-lite-android-community_0.0.0-473.zip) - to get more recent builds, see [Jenkins CI builds](http://factory.couchbase.com/view/build/view/mobile_dev/view/android/job/build_cblite_android_master/)
+* [Master Branch build #515 zipfile](http://mobile.jenkins.couchbase.com/job/couchbase-lite-android-create-zip/37/artifact/artifacts/couchbase-lite-0.0.0-515-android_community.zip) - to get more recent builds, see [Jenkins CI builds](http://mobile.jenkins.couchbase.com/job/couchbase-lite-android-create-zip/)
 * To get the latest released zipfile, go to [the official download site](http://www.couchbase.com/download#cb-mobile) and download the latest release.
 
 
@@ -91,8 +117,9 @@ Couchbase Lite Version  | Android Studio Version
 1.0.0  | Android Studio 0.5.7
 1.0.1  | Android Studio 0.5.7
 1.0.2  | Android Studio 0.8.2
-1.0.3.x  | Android Studio 0.8.2 - 0.8.9
-Master  | Android Studio 1.0
+1.0.3.x | Android Studio 0.8.2 - 0.8.9
+1.0.4  | Android Studio 1.0
+Master | Android Studio 1.0
 
 ### Prerequisites
 
@@ -147,7 +174,7 @@ If you want to run something (aside from the tests), you should get one of the s
 * If you don't already have a `local.properties` file, configure Android Studio SDK location
     * `cp local.properties.example local.properties`
     * Customize `local.properties` according to your SDK installation directory
-* Build and test
+* Build
     * `$ ./gradlew build`
 
 ## Example Apps
@@ -161,6 +188,8 @@ If you want to run something (aside from the tests), you should get one of the s
     * Ability for users to share data
 * [LiteServAndroid](https://github.com/couchbaselabs/couchbase-lite-android-liteserv)
     * REST API example
+* [TestCouchLiteAndroid](https://github.com/iraycd/TestCouchLiteAndroid)
+    * Simple example contributed by [@iraycd](https://github.com/iraycd) 
 
 ## System Requirements
 
@@ -183,4 +212,3 @@ If you want to run something (aside from the tests), you should get one of the s
 ## License
 - Apache License 2.0
 
-[![githalytics.com alpha](https://cruel-carlota.pagodabox.com/bc53967fe3191ba75b4a62c9372d9928 "githalytics.com")](http://githalytics.com/couchbase/couchbase-lite-android)
